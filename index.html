@@ -97,11 +97,11 @@
         <!-- Editor -->
         <section class="panel panel--editor" aria-label="Code editor">
           <header class="panel__header panel__header--overlay">
-            <div class="segmented" role="tablist" aria-label="Language">
+            <div id="editor-tabs" class="segmented" role="tablist" aria-label="Language">
               <span class="segmented__thumb" aria-hidden="true"></span>
-              <button class="segmented__item" type="button" role="tab" data-editor-tab="html">HTML</button>
-              <button class="segmented__item" type="button" role="tab" data-editor-tab="css">CSS</button>
-              <button class="segmented__item" type="button" role="tab" data-editor-tab="js">
+              <button class="segmented__item" type="button" role="tab" data-value="html">HTML</button>
+              <button class="segmented__item" type="button" role="tab" data-value="css">CSS</button>
+              <button class="segmented__item" type="button" role="tab" data-value="js">
                 JS<span id="js-pending-dot" class="pending-dot" title="Changes not run yet" hidden></span>
               </button>
             </div>
@@ -111,7 +111,7 @@
 
         <div class="splitter splitter--x" data-splitter="editor" role="separator" aria-orientation="vertical" aria-label="Editor width" tabindex="0"></div>
 
-        <div id="stack" class="stack">
+        <div class="stack stack--preview">
           <!-- Preview -->
           <section class="panel panel--preview" aria-label="Preview">
             <header class="panel__header">
@@ -161,46 +161,73 @@
 
         <div class="splitter splitter--x" data-splitter="tree" role="separator" aria-orientation="vertical" aria-label="DOM tree width" tabindex="0"></div>
 
-        <!-- DOM tree -->
-        <section class="panel panel--tree" aria-label="DOM tree">
-          <header id="tree-header" class="panel__header panel__header--overlay panel__header--tall">
-            <div class="panel__header-row">
-              <h2 class="panel__title">DOM</h2>
-              <span id="tree-count" class="panel__subtitle"></span>
-              <div class="panel__actions">
-                <button id="tree-expand" class="icon-button icon-button--small" type="button" aria-label="Expand all" title="Expand all">
-                  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M8 1.5V6M5.5 3.5 8 1.5l2.5 2M8 14.5V10M5.5 12.5 8 14.5l2.5-2M3 8h10" />
-                  </svg>
-                </button>
-                <button id="tree-collapse" class="icon-button icon-button--small" type="button" aria-label="Collapse all" title="Collapse all">
-                  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M8 1.5V6M5.5 3.5 8 6l2.5-2.5M8 14.5V10M5.5 12.5 8 10l2.5 2.5M3 8h10" />
-                  </svg>
-                </button>
-                <button id="tree-refresh" class="icon-button icon-button--small" type="button" aria-label="Read the DOM again" title="Read the DOM again">
-                  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" />
+        <div class="stack stack--inspector">
+          <!-- DOM tree -->
+          <section class="panel panel--tree" aria-label="DOM tree">
+            <header id="tree-header" class="panel__header panel__header--overlay panel__header--tall">
+              <div class="panel__header-row">
+                <h2 class="panel__title">DOM</h2>
+                <span id="tree-count" class="panel__subtitle"></span>
+                <div class="panel__actions">
+                  <button id="tree-expand" class="icon-button icon-button--small" type="button" aria-label="Expand all" title="Expand all">
+                    <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M8 1.5V6M5.5 3.5 8 1.5l2.5 2M8 14.5V10M5.5 12.5 8 14.5l2.5-2M3 8h10" />
+                    </svg>
+                  </button>
+                  <button id="tree-collapse" class="icon-button icon-button--small" type="button" aria-label="Collapse all" title="Collapse all">
+                    <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M8 1.5V6M5.5 3.5 8 6l2.5-2.5M8 14.5V10M5.5 12.5 8 10l2.5 2.5M3 8h10" />
+                    </svg>
+                  </button>
+                  <button id="tree-refresh" class="icon-button icon-button--small" type="button" aria-label="Read the DOM again" title="Read the DOM again">
+                    <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="panel__header-row panel__header-row--sub">
+                <label class="switch-label">
+                  <input id="ws-toggle" class="switch" type="checkbox" role="switch" checked />
+                  <span>Hide whitespace <span id="ws-count" class="muted"></span></span>
+                </label>
+                <button class="icon-button icon-button--small" type="button" popovertarget="tree-help" aria-label="How to read the tree" title="How to read the tree">
+                  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                    <circle cx="8" cy="8" r="6.25" />
+                    <path d="M8 7.25V11M8 5h.01" />
                   </svg>
                 </button>
               </div>
-            </div>
-            <div class="panel__header-row panel__header-row--sub">
-              <label class="switch-label">
-                <input id="ws-toggle" class="switch" type="checkbox" role="switch" checked />
-                <span>Hide whitespace <span id="ws-count" class="muted"></span></span>
-              </label>
-              <button class="icon-button icon-button--small" type="button" popovertarget="tree-help" aria-label="How to read the tree" title="How to read the tree">
-                <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
-                  <circle cx="8" cy="8" r="6.25" />
-                  <path d="M8 7.25V11M8 5h.01" />
-                </svg>
-              </button>
-            </div>
-          </header>
-          <div id="tree-host"></div>
-          <footer id="tree-breadcrumb" class="panel__footer breadcrumb" aria-label="Path of the selected node"></footer>
-        </section>
+            </header>
+            <div id="tree-host"></div>
+            <footer id="tree-breadcrumb" class="panel__footer breadcrumb" aria-label="Path of the selected node"></footer>
+          </section>
+
+          <div class="splitter splitter--y" data-splitter="details" role="separator" aria-orientation="horizontal" aria-label="Details height" tabindex="0"></div>
+
+          <!-- Details of the selected node -->
+          <section class="panel panel--details" aria-label="Node details">
+            <header class="panel__header panel__header--overlay">
+              <div id="details-tabs" class="segmented segmented--small" role="tablist" aria-label="Details">
+                <span class="segmented__thumb" aria-hidden="true"></span>
+                <button class="segmented__item" type="button" role="tab" data-value="node">Node</button>
+                <button class="segmented__item" type="button" role="tab" data-value="box">Box</button>
+                <button class="segmented__item" type="button" role="tab" data-value="styles">Styles</button>
+                <button class="segmented__item" type="button" role="tab" data-value="events">
+                  Events<span id="events-count" class="segmented__count" hidden></span>
+                </button>
+              </div>
+              <div class="panel__actions">
+                <button id="details-toggle" class="icon-button icon-button--small collapse-button" type="button" aria-label="Collapse the details" aria-expanded="true">
+                  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 6l4 4 4-4" />
+                  </svg>
+                </button>
+              </div>
+            </header>
+            <div id="details-host" class="panel__body details-host"></div>
+          </section>
+        </div>
       </main>
     </div>
 

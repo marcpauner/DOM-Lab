@@ -15,8 +15,10 @@ import { buildModel } from './tree/model.js';
 import { TreeView } from './tree/TreeView.js';
 import { renderBreadcrumb } from './tree/breadcrumb.js';
 import { ConsolePanel } from './console/ConsolePanel.js';
+import { DetailsPanel } from './details/DetailsPanel.js';
 import { initTheme } from './ui/theme.js';
 import { initSplitters } from './ui/splitters.js';
+import { createSegmented } from './ui/segmented.js';
 import { registerShortcut, listShortcuts, formatShortcut, isMac, SECONDARY } from './ui/shortcuts.js';
 import { readPref, writePref } from './lib/storage.js';
 import { debounce } from './lib/debounce.js';
@@ -29,55 +31,23 @@ const AUTORUN_DELAY = 500;
 const STALL_TIMEOUT = 3000;
 
 // ── Layout and theme ────────────────────────────────────────────────
-const layout = initSplitters($('#workspace'), $('#stack'));
+const layout = initSplitters($('#workspace'));
 initTheme($('#theme-button'));
 
 // ── Editors ─────────────────────────────────────────────────────────
 const editors = createEditors($('#editor-host'), { initial: STARTER, onChange: onEdit });
-const tabs = [...document.querySelectorAll('[data-editor-tab]')];
-const thumb = $('.segmented__thumb');
-let activeTab = null;
+// A click on a tab also moves the focus to the editor; the arrow keys stay on the tabs
+const editorTabs = createSegmented($('#editor-tabs'), { onChange: (id, { user }) => showEditor(id, { focus: user }) });
 
 function showEditor(id, { focus = false } = {}) {
   editors.show(id);
-  for (const tab of tabs) {
-    const selected = tab.dataset.editorTab === id;
-    tab.setAttribute('aria-selected', String(selected));
-    tab.tabIndex = selected ? 0 : -1;
-    if (selected) activeTab = tab;
-  }
-  moveThumb();
+  editorTabs.select(id);
   writePref('editor-tab', id);
   if (focus) editors.focus(id);
 }
 
-// The segmented control's "thumb" is placed by measuring the active button
-function moveThumb() {
-  thumb.style.setProperty('--thumb-x', `${activeTab.offsetLeft}px`);
-  thumb.style.setProperty('--thumb-w', `${activeTab.offsetWidth}px`);
-}
-
-$('.segmented').addEventListener('click', (event) => {
-  const tab = event.target.closest('[data-editor-tab]');
-  if (tab) showEditor(tab.dataset.editorTab, { focus: true });
-});
-
-// ARIA tabs pattern: arrow keys switch tabs
-$('.segmented').addEventListener('keydown', (event) => {
-  if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
-  const step = event.key === 'ArrowRight' ? 1 : -1;
-  const next = tabs[(tabs.indexOf(activeTab) + step + tabs.length) % tabs.length];
-  showEditor(next.dataset.editorTab);
-  next.focus();
-});
-
 const savedTab = readPref('editor-tab', 'html');
 showEditor(LANGUAGES.some((lang) => lang.id === savedTab) ? savedTab : 'html');
-// The Inter font changes the buttons' width once it loads: measure again
-document.fonts.ready.then(() => {
-  moveThumb();
-  requestAnimationFrame(() => thumb.classList.add('is-ready'));
-});
 
 // ── Preview, console and tree ───────────────────────────────────────
 const preview = new PreviewBridge($('#preview-host'));
@@ -154,7 +124,8 @@ $('#pending-js').addEventListener('click', () => run());
 
 // ── Highlighting and inspect mode ───────────────────────────────────
 // Everything in the app that represents a DOM node carries data-node-id:
-// tree rows, breadcrumbs and nodes logged in the console. Hovering any of
+// tree rows, breadcrumbs, nodes logged in the console and the details
+// panel. Hovering any of
 // them highlights that node in the preview. The agent measures the node
 // and sends its box; the Overlay draws it on top of the iframe.
 const overlay = new Overlay($('#preview-host'));
@@ -283,6 +254,28 @@ breadcrumb.addEventListener('click', (event) => {
   tree.focus();
 });
 
+// ── Details panel ───────────────────────────────────────────────────
+// Every new selection asks the agent for that node's details.
+const details = new DetailsPanel($('#details-host'), { tabs: $('#details-tabs'), eventsBadge: $('#events-count') });
+let detailsTimer = 0;
+
+tree.addEventListener('select', ({ detail: node }) => {
+  details.show(node);
+  clearTimeout(detailsTimer);
+  // Moving fast with the arrow keys sends one request, not one per row
+  if (node && modelIsCurrent) detailsTimer = setTimeout(() => preview.send(TO_AGENT.REQUEST_DETAILS, { id: node.id }), 80);
+});
+
+preview.addEventListener(FROM_AGENT.DETAILS, ({ detail }) => {
+  // Only the answer for the node that is still selected matters
+  if (detail.id === tree.selectedId) details.update(detail.details);
+});
+
+// Ancestors with listeners can be selected from the Events tab
+details.addEventListener('select-node', ({ detail }) => {
+  if (tree.select(detail.id, { reveal: true })) tree.focus();
+});
+
 // Help popover: placed under its button (getBoundingClientRect)
 const help = $('#tree-help');
 help.addEventListener('beforetoggle', (event) => {
@@ -317,15 +310,23 @@ consolePanel.addEventListener('goto', ({ detail }) => {
   editors.goTo(detail.file, detail.line, detail.column);
 });
 
-const consoleToggle = $('#console-toggle');
-function toggleConsole() {
-  const collapsed = layout.toggleConsole();
-  consoleToggle.setAttribute('aria-expanded', String(!collapsed));
-  consoleToggle.setAttribute('aria-label', collapsed ? 'Expand the console' : 'Collapse the console');
-}
-consoleToggle.setAttribute('aria-expanded', String(!layout.consoleCollapsed));
-consoleToggle.addEventListener('click', toggleConsole);
 $('#console-clear').addEventListener('click', () => consolePanel.clear());
+
+// ── Collapsible panels ──────────────────────────────────────────────
+/** Wires a collapse button to a bottom panel. Returns the toggle function. */
+function collapsible(key, button, name) {
+  const sync = (collapsed) => {
+    button.setAttribute('aria-expanded', String(!collapsed));
+    button.setAttribute('aria-label', `${collapsed ? 'Expand' : 'Collapse'} the ${name}`);
+  };
+  const toggle = () => sync(layout.toggle(key));
+  sync(layout.isCollapsed(key));
+  button.addEventListener('click', toggle);
+  return toggle;
+}
+
+const toggleConsole = collapsible('console', $('#console-toggle'), 'console');
+collapsible('details', $('#details-toggle'), 'details');
 
 // ── Keyboard shortcuts ──────────────────────────────────────────────
 registerShortcut('Mod+Enter', 'Run the code', () => run());
