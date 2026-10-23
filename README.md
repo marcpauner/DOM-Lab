@@ -27,6 +27,11 @@ It is built with **plain JavaScript** (no React, no Vue): the app's own source i
   - virtualized: stays smooth with tens of thousands of nodes.
 - **DevTools-style highlighting**: hover a node in the tree, the breadcrumbs or the console and the preview shows its box model (margin, border, padding and content) with its size.
 - **Inspect mode** (<kbd>Alt</kbd>+<kbd>I</kbd>, <kbd>⌃</kbd>+<kbd>I</kbd> on Mac): hover the preview to find elements in the tree, click to select one. Your page's own click handlers do not fire while inspecting.
+- **Details panel** for the selected node:
+  - **Node**: `nodeName`, `nodeType`, `childNodes` / `children` and attributes, with the JavaScript property that reflects them (`data-user-id` → `element.dataset.userId`, `class` → `element.classList`);
+  - **Box**: a visual box model (margin, border, padding, content) plus `getBoundingClientRect()`, `offset*`, `client*` and `scroll*`;
+  - **Styles**: computed styles grouped by topic (layout, flexbox, grid, spacing, typography, appearance), with a filter, color swatches and the full list;
+  - **Events**: listeners added with `addEventListener`, `el.onclick = …` or `onclick="…"`, on the node and on its ancestors (event delegation).
 - **Built-in console** with `console.log/info/warn/error/debug/table/assert/clear`, uncaught errors and rejected promises:
   - errors link to the line in your code (`script.js:12:5`);
   - if you log a node (`console.log(element)`), one click shows it in the tree;
@@ -81,6 +86,7 @@ The full protocol is documented in [`docs/protocol.md`](docs/protocol.md).
 │   │   └── Overlay.js       Box model overlay drawn on top of the iframe
 │   ├── editor/              CodeMirror editors and their theme
 │   ├── tree/                Tree model, virtualized view, breadcrumbs
+│   ├── details/             Details panel: node, box model, styles, listeners
 │   ├── console/             Console panel
 │   ├── ui/                  Theme, resizable panels and shortcuts
 │   ├── lib/                 Helpers: h() to create elements, debounce, preferences
@@ -96,6 +102,8 @@ The full protocol is documented in [`docs/protocol.md`](docs/protocol.md).
 - **`WeakMap`, `WeakRef` and `FinalizationRegistry`** (`agent/agent.js`): stable ids per node, and the way back from an id to its node, without keeping removed nodes from being garbage collected.
 - **Box model** (`agent/agent.js`, `preview/Overlay.js`): `getBoundingClientRect`, `getComputedStyle`, a `Range` to measure text nodes, and drawing margin / border / padding / content.
 - **Event phases** (`agent/agent.js`): capture-phase listeners on `window` that run before the user's own, plus `stopImmediatePropagation` and `preventDefault`.
+- **Listing event listeners** (`agent/agent.js`): there is no standard API for it, so the agent wraps `EventTarget.prototype.addEventListener` before your code runs.
+- **Computed styles and measurements** (`agent/agent.js`, `details/DetailsPanel.js`): `getComputedStyle`, and the difference between `offsetWidth`, `clientWidth` and `scrollWidth`.
 - **`postMessage` and origins** (`preview/PreviewBridge.js`): `event.source`, `event.origin` and `targetOrigin`.
 - **Virtualization** (`tree/TreeView.js`): render only what is visible and animate with `transform`.
 - **Creating nodes safely** (`lib/dom.js`): `createElement` + `append` versus `innerHTML`.
@@ -137,7 +145,7 @@ No repository name needs to be configured: `vite.config.js` uses `base: './'` (r
 
 - [x] **Phase 1**: project structure, editors, isolated run with agent, read-only DOM tree and console.
 - [x] **Phase 2**: highlight in the preview the node under the pointer (DevTools-style overlay) and "inspect" mode.
-- [ ] **Phase 3**: details panel: attributes, computed styles, visual box model and event listeners.
+- [x] **Phase 3**: details panel: attributes, computed styles, visual box model and event listeners.
 - [ ] **Phase 4**: live tree with `MutationObserver`, mutation history and change animations.
 - [ ] **Phase 5**: editing from the UI: attributes, text, add, remove and move nodes.
 - [ ] **Phase 6**: `localStorage` persistence, templates, code export and sharing via URL.
@@ -145,6 +153,8 @@ No repository name needs to be configured: `vite.config.js` uses `base: './'` (r
 ## Known limitations
 
 - The tree is read when the page loads (`DOMContentLoaded` and `load`). Later changes (for example in a `setTimeout` or after clicking a button) show up with **Read the DOM again** (↻). The live tree comes in phase 4.
+- The details panel shows the node as it was when you selected it. After changes, select it again or press ↻.
+- Only listeners added by your code are listed: the preview starts recording them right before your code runs.
 - The HTML panel represents the content of `<body>`. If you paste a full document, the browser ignores the repeated `<html>`, `<head>` and `<body>` tags.
 - `alert()`, `confirm()` and `prompt()` are disabled in the sandbox: a warning shows up in the console.
 - If your JS enters an infinite loop, depending on the browser the app's tab may freeze too.
