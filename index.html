@@ -121,9 +121,17 @@
                 <button id="pending-js" class="pill pill--warning" type="button" title="Your JavaScript has changed since the last run" hidden>
                   JS not run <kbd></kbd>
                 </button>
+                <button id="inspect-button" class="icon-button icon-button--small" type="button" aria-pressed="false" aria-label="Inspect an element">
+                  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M6 2.5H4A1.5 1.5 0 0 0 2.5 4v2M2.5 10v2A1.5 1.5 0 0 0 4 13.5h2M10 2.5h2A1.5 1.5 0 0 1 13.5 4v2" />
+                    <path d="M8.5 8.5l5.5 2-2.3 1-1 2.3z" fill="currentColor" />
+                  </svg>
+                </button>
               </div>
             </header>
-            <div id="preview-host" class="preview-host"></div>
+            <div id="preview-host" class="preview-host">
+              <div id="inspect-hint" class="inspect-hint" hidden>Click an element to select it <kbd>Esc</kbd></div>
+            </div>
           </section>
 
           <div class="splitter splitter--y" data-splitter="console" role="separator" aria-orientation="horizontal" aria-label="Console height" tabindex="0"></div>

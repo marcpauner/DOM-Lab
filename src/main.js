@@ -9,6 +9,7 @@ import './styles/layout.css';
 
 import { createEditors, LANGUAGES } from './editor/editors.js';
 import { PreviewBridge } from './preview/PreviewBridge.js';
+import { Overlay } from './preview/Overlay.js';
 import { FROM_AGENT, TO_AGENT, LIMITS } from './protocol/messages.js';
 import { buildModel } from './tree/model.js';
 import { TreeView } from './tree/TreeView.js';
@@ -100,6 +101,7 @@ function run({ keepJs = false } = {}) {
     executedJs = editors.getValue('js');
     setJsPending(false);
   }
+  resetHighlight();
   consolePanel.clear();
   setStatus('running', 'Running…');
   clearTimeout(stallTimer);
@@ -129,7 +131,9 @@ preview.addEventListener(FROM_AGENT.SNAPSHOT, ({ detail }) => {
   clearTimeout(stallTimer);
   const model = buildModel(detail.root);
   if (!model) return;
+  modelIsCurrent = true;
   tree.setModel(model);
+  if (pendingPick !== null) pick(pendingPick);
   $('#tree-count').textContent = `${model.stats.total.toLocaleString('en')} nodes`;
   $('#ws-count').textContent = `(${model.stats.whitespace})`;
   if (detail.truncated) {
@@ -147,6 +151,105 @@ preview.addEventListener('navigated', () => {
 
 $('#run-button').addEventListener('click', () => run());
 $('#pending-js').addEventListener('click', () => run());
+
+// ── Highlighting and inspect mode ───────────────────────────────────
+// Everything in the app that represents a DOM node carries data-node-id:
+// tree rows, breadcrumbs and nodes logged in the console. Hovering any of
+// them highlights that node in the preview. The agent measures the node
+// and sends its box; the Overlay draws it on top of the iframe.
+const overlay = new Overlay($('#preview-host'));
+const treeHost = $('#tree-host');
+const inspectButton = $('#inspect-button');
+let modelIsCurrent = false; // ids change on every run: until the new tree arrives, they mean nothing
+let highlighted = null; // id the agent is following
+let pointerNodeId = null; // id under the pointer in the app
+let inspecting = false;
+let inspectHoverId = null; // id under the pointer in the preview, while inspecting
+let pendingPick = null; // picked node that is not in the tree yet
+
+/** With nothing under the pointer, the selected node stays highlighted while the tree has focus (keyboard navigation). */
+const restingId = () => pointerNodeId ?? (document.activeElement === treeHost ? tree.selectedId : null);
+
+function highlight(id) {
+  if (inspecting || !modelIsCurrent || id === highlighted) return;
+  highlighted = id;
+  if (id === null) overlay.hide();
+  preview.send(TO_AGENT.HIGHLIGHT, { id });
+}
+
+function resetHighlight() {
+  modelIsCurrent = false;
+  highlighted = null;
+  inspectHoverId = null;
+  pendingPick = null;
+  overlay.hide();
+  tree.setHovered(null);
+}
+
+// pointerover bubbles, so a single listener on document covers the whole app
+document.addEventListener('pointerover', (event) => {
+  const target = event.target instanceof Element ? event.target.closest('[data-node-id]') : null;
+  pointerNodeId = target ? Number(target.dataset.nodeId) : null;
+  highlight(restingId());
+});
+document.documentElement.addEventListener('pointerleave', () => {
+  pointerNodeId = null;
+  highlight(restingId());
+});
+// During focusout, activeElement is not updated yet: check on the next tick
+treeHost.addEventListener('focusin', () => highlight(restingId()));
+treeHost.addEventListener('focusout', () => setTimeout(() => highlight(restingId())));
+
+preview.addEventListener(FROM_AGENT.BOX, ({ detail }) => {
+  // A box may arrive late for a node we no longer highlight: ignore it
+  if (detail.id !== (inspecting ? inspectHoverId : highlighted)) return;
+  if (detail.box) overlay.show(detail.box, detail.label);
+  else overlay.hide();
+});
+
+function setInspecting(enabled) {
+  if (enabled === inspecting) return;
+  inspecting = enabled;
+  inspectHoverId = null;
+  highlighted = null; // the agent stops following when the mode changes
+  overlay.hide();
+  tree.setHovered(null);
+  inspectButton.setAttribute('aria-pressed', String(enabled));
+  $('.panel--preview').classList.toggle('is-inspecting', enabled);
+  $('#inspect-hint').hidden = !enabled;
+  preview.send(TO_AGENT.SET_INSPECT, { enabled });
+  if (!enabled) highlight(restingId());
+}
+
+/** Selects a node in the tree and gives it focus, so it stays highlighted. */
+function pick(id) {
+  pendingPick = null;
+  if (!tree.select(id, { reveal: true })) return false;
+  tree.focus();
+  return true;
+}
+
+preview.addEventListener(FROM_AGENT.HOVER, ({ detail }) => {
+  if (!inspecting) return;
+  inspectHoverId = detail.id;
+  if (detail.id === null) overlay.hide();
+  tree.setHovered(detail.id, { reveal: true });
+});
+
+preview.addEventListener(FROM_AGENT.PICK, ({ detail }) => {
+  setInspecting(false);
+  if (detail.id === null || pick(detail.id)) return;
+  // A node created after the last snapshot: read the DOM again and select it then
+  pendingPick = detail.id;
+  preview.send(TO_AGENT.REQUEST_SNAPSHOT);
+});
+
+// A new run starts with a fresh agent: tell it if we were inspecting
+preview.addEventListener(FROM_AGENT.READY, () => {
+  if (inspecting) preview.send(TO_AGENT.SET_INSPECT, { enabled: true });
+});
+
+inspectButton.addEventListener('click', () => setInspecting(!inspecting));
 autorun.checked = readPref('autorun', true);
 autorun.addEventListener('change', () => writePref('autorun', autorun.checked));
 
@@ -172,10 +275,11 @@ new ResizeObserver(() => {
 const breadcrumb = $('#tree-breadcrumb');
 renderBreadcrumb(breadcrumb, null);
 tree.addEventListener('select', ({ detail }) => renderBreadcrumb(breadcrumb, detail));
+tree.addEventListener('select', () => highlight(restingId()));
 breadcrumb.addEventListener('click', (event) => {
-  const item = event.target.closest('[data-id]');
+  const item = event.target.closest('[data-node-id]');
   if (!item) return;
-  tree.select(Number(item.dataset.id));
+  tree.select(Number(item.dataset.nodeId));
   tree.focus();
 });
 
@@ -232,6 +336,8 @@ LANGUAGES.forEach((lang, index) => {
 registerShortcut(`${SECONDARY}+W`, 'Show or hide whitespace nodes', () => whitespace.click());
 registerShortcut(`${SECONDARY}+L`, 'Clear the console', () => consolePanel.clear());
 registerShortcut(`${SECONDARY}+J`, 'Show or hide the console', toggleConsole);
+registerShortcut(`${SECONDARY}+I`, 'Inspect an element in the preview', () => setInspecting(!inspecting));
+registerShortcut('Escape', 'Cancel inspect mode', () => setInspecting(false), { when: () => inspecting });
 registerShortcut('?', 'Show keyboard shortcuts', () => dialog.showModal());
 
 const TREE_KEYS = [
@@ -257,6 +363,7 @@ const runKeys = formatShortcut('Mod+Enter');
 $('#run-kbd').textContent = runKeys;
 $('#pending-js kbd').textContent = runKeys;
 $('#run-button').title = `Run HTML, CSS and JavaScript (${runKeys})`;
+inspectButton.title = `Inspect an element (${formatShortcut(`${SECONDARY}+I`)})`;
 
 // First run!
 run();

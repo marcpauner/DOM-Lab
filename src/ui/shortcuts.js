@@ -11,8 +11,8 @@
 export const isMac = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
 export const SECONDARY = isMac ? 'Ctrl' : 'Alt';
 
-const MAC_SYMBOLS = { Mod: '⌘', Ctrl: '⌃', Alt: '⌥', Shift: '⇧', Enter: '↵' };
-const PC_NAMES = { Mod: 'Ctrl', Enter: 'Enter' };
+const MAC_SYMBOLS = { Mod: '⌘', Ctrl: '⌃', Alt: '⌥', Shift: '⇧', Enter: '↵', Escape: 'Esc' };
+const PC_NAMES = { Mod: 'Ctrl', Enter: 'Enter', Escape: 'Esc' };
 
 const registry = [];
 
@@ -20,9 +20,10 @@ const registry = [];
  * @param {string} combo   e.g. 'Mod+Enter'
  * @param {string} label   description for the help dialog
  * @param {(event: KeyboardEvent) => void} handler
+ * @param {{ when?: () => boolean }} [options]  when: the shortcut only applies while it returns true
  */
-export function registerShortcut(combo, label, handler) {
-  registry.push({ combo, label, handler, ...parse(combo) });
+export function registerShortcut(combo, label, handler, { when = () => true } = {}) {
+  registry.push({ combo, label, handler, when, ...parse(combo) });
 }
 
 export const listShortcuts = () => registry.map(({ combo, label }) => ({ combo, label }));
@@ -80,7 +81,7 @@ window.addEventListener(
   (event) => {
     if (event.repeat || event.isComposing) return;
     for (const shortcut of registry) {
-      if (!matches(shortcut, event)) continue;
+      if (!matches(shortcut, event) || !shortcut.when()) continue;
       // A shortcut without modifiers (like "?") must not fire while typing
       const plain = !shortcut.ctrl && !shortcut.meta && !shortcut.alt;
       if (plain && isTyping(event.target)) return;
