@@ -50,6 +50,7 @@ Every message, in both directions, has the same shape:
 | `inspect:pick` | `{ id \| null }` | Inspect mode: the user clicked a node. Inspect mode ends. |
 | `node:details` | `{ id, details: NodeDetails \| null }` | Answer to `node:request-details` (`null`: the node no longer exists). |
 | `dom:mutations` | `{ patches: Patch[], records: ChangeRecord[], dropped, overflow }` | Live changes, in batches every 50 ms at most. |
+| `dom:edit-result` | `{ requestId, ok, error?, id?, undo, redo }` | Answer to `dom:edit`. |
 
 ### App → agent (`TO_AGENT`)
 
@@ -59,6 +60,7 @@ Every message, in both directions, has the same shape:
 | `overlay:highlight` | `{ id \| null }` | The agent starts following that node's box (`null` stops). Ignored while inspecting. |
 | `inspect:set` | `{ enabled }` | Turns inspect mode on or off. |
 | `node:request-details` | `{ id }` | Asks for everything the details panel shows about a node. |
+| `dom:edit` | `{ requestId, edit: Edit }` | Changes the live DOM (see [Editing](#editing)). |
 
 ### Data types
 
@@ -160,13 +162,26 @@ Right after the first snapshot, the agent starts a `MutationObserver` on the who
 
 In the app, `applyPatches()` (`tree/model.js`) applies every `children` patch first (a node dropped by one parent may have been picked up by another one in the same batch), then deletes what nobody picked up, then applies attributes and text. If a patch names a node the app does not have, it asks for a full snapshot. With more than `LIMITS.MAX_MUTATIONS` records in one batch the agent skips the patches and sends a full snapshot instead.
 
-## Planned messages for the next phases
+## Editing
 
-They will use the same envelope; names may change when they are implemented.
+Edits from the interface travel as one message type, `dom:edit`, with an `edit` object:
 
-| Phase | Direction | Type | Payload |
-| --- | --- | --- | --- |
-| 5 | app → agent | `attr:set`, `attr:remove`, `text:set`, `node:remove`, `node:move`, `node:insert` | `{ requestId, id, … }` |
-| 5 | agent → app | `command:result` | `{ requestId, ok, error? }` |
+```js
+{ op: 'set-attribute', id, name, value }       // element.setAttribute(name, value)
+{ op: 'remove-attribute', id, name }           // element.removeAttribute(name)
+{ op: 'set-text', id, value }                  // textOrComment.data = value
+{ op: 'insert', parentId, beforeId, kind, value } // createElement / createTextNode / createComment + insertBefore
+{ op: 'move', id, parentId, beforeId }         // parent.insertBefore(node, before): an existing node MOVES
+{ op: 'duplicate', id }                        // node.after(node.cloneNode(true))
+{ op: 'remove', id }                           // node.remove()
+{ op: 'undo' } / { op: 'redo' }
+```
 
-Commands that name a node need the reverse lookup (id → node). The agent keeps a `Map<id, WeakRef<Node>>` plus a `FinalizationRegistry` that removes the entry once the node is collected, so it still never keeps removed nodes alive.
+`beforeId: null` means "at the end", like the second argument of `insertBefore`.
+
+1. The agent applies the edit to the **live DOM**. The user's code is never touched: running again starts over.
+2. It stores the edit as a pair of functions, `apply` and `revert`, on an undo stack (100 steps). `undo` and `redo` move steps between the two stacks.
+3. The changes reach the app like any other: through the `MutationObserver`. Right before applying the edit the agent takes the pending records as `source: 'page'`; right after, the new ones as `source: 'app'`, so the history can tell your edits from what the page's code did. It sends them at once instead of waiting for the 50 ms batch.
+4. It answers with `dom:edit-result`. When the DOM refuses an edit (an invalid tag name, a node moved inside itself…) `ok` is `false` and `error` carries the DOM exception, e.g. `InvalidCharacterError: … is not a valid name`.
+
+Commands that name a node need the reverse lookup (id → node). The agent keeps a `Map<id, WeakRef<Node>>` plus a `FinalizationRegistry` that removes the entry once the node is collected, so it still never keeps removed nodes alive. The undo stack, on the other hand, does hold strong references: a removed node has to stay alive to be put back.

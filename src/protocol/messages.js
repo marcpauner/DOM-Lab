@@ -43,6 +43,8 @@ export const FROM_AGENT = Object.freeze({
    * overflow > 0: too many changes at once; a full dom:snapshot follows.
    */
   MUTATIONS: 'dom:mutations',
+  /** Answer to dom:edit. payload: { requestId, ok, error?, id?, undo, redo } */
+  EDIT_RESULT: 'dom:edit-result',
 });
 
 /** app → iframe */
@@ -55,6 +57,8 @@ export const TO_AGENT = Object.freeze({
   SET_INSPECT: 'inspect:set',
   /** Asks for a node's details (answered with node:details). payload: { id: number } */
   REQUEST_DETAILS: 'node:request-details',
+  /** Changes the live DOM from the app's interface. payload: { requestId: number, edit: Edit } */
+  EDIT: 'dom:edit',
 });
 
 /** Shared limits: they protect the app from huge or malicious documents. */
@@ -185,6 +189,30 @@ export const LIMITS = Object.freeze({
  * @property {string} [name]        attributes only: the attribute name
  * @property {string|null} [oldValue]  attributes and characterData (null: the attribute did not exist)
  * @property {string|null} [value]     The value right after this change (null: removed)
+ * @property {'page'|'app'} source      'app': made from DOM Lab's interface; 'page': by the page's own code
+ */
+
+/**
+ * An edit made from the app's interface. The agent applies it to the live
+ * DOM (the user's code is not touched) and remembers how to undo it.
+ * @typedef {{ op: 'set-attribute', id: number, name: string, value: string }
+ *   | { op: 'remove-attribute', id: number, name: string }
+ *   | { op: 'set-text', id: number, value: string }
+ *   | { op: 'insert', parentId: number, beforeId: number|null, kind: 'element'|'text'|'comment', value: string }
+ *   | { op: 'move', id: number, parentId: number, beforeId: number|null }
+ *   | { op: 'duplicate', id: number }
+ *   | { op: 'remove', id: number }
+ *   | { op: 'undo' } | { op: 'redo' }} Edit
+ *   insert: value is the tag name for an element, or the text for text and comments.
+ *   beforeId: the new position is right before that node (null: at the end).
+ *
+ * @typedef {Object} EditResult
+ * @property {number} requestId
+ * @property {boolean} ok
+ * @property {string} [error]   e.g. "InvalidCharacterError: … is not a valid tag name"
+ * @property {number} [id]      insert and duplicate: the new node
+ * @property {number} undo      How many edits can be undone
+ * @property {number} redo      How many can be redone
  */
 
 /** Builds a message in the protocol format. */
@@ -230,6 +258,8 @@ export function readPayload(type, payload) {
       return readDetails(payload);
     case FROM_AGENT.MUTATIONS:
       return readMutations(payload);
+    case FROM_AGENT.EDIT_RESULT:
+      return readEditResult(payload);
     default:
       return null;
   }
@@ -368,6 +398,7 @@ function readRecord(raw) {
     time: Number.isFinite(raw.time) ? raw.time : Date.now(),
     targetId: isId(raw.targetId) ? raw.targetId : null,
     target: text(raw.target, 200),
+    source: raw.source === 'app' ? 'app' : 'page',
   };
   if (raw.type === 'childList') {
     const refs = (list) => (Array.isArray(list) ? list.slice(0, 20).map(readNodeRef).filter(Boolean) : []);
@@ -379,6 +410,20 @@ function readRecord(raw) {
     record.value = stringOrNull(raw.value, 300);
   }
   return record;
+}
+
+function readEditResult(payload) {
+  if (!Number.isInteger(payload.requestId)) return null;
+  /** @type {EditResult} */
+  const result = {
+    requestId: payload.requestId,
+    ok: payload.ok === true,
+    undo: count(payload.undo),
+    redo: count(payload.redo),
+  };
+  if (typeof payload.error === 'string') result.error = payload.error.slice(0, 300);
+  if (isId(payload.id)) result.id = payload.id;
+  return result;
 }
 
 function readMutations(payload) {
