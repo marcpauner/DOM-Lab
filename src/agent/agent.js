@@ -34,14 +34,24 @@ const truncate = (text, max) => (text.length > max ? text.slice(0, max) : text);
 const ids = new WeakMap();
 let nextId = 1;
 
+// The reverse direction (id → node) is needed to obey commands such as
+// "highlight node 42". A WeakRef points to the node without keeping it
+// alive, and the FinalizationRegistry drops the entry once it is collected.
+const refs = new Map();
+const cleanup = new FinalizationRegistry((id) => refs.delete(id));
+
 function idOf(node) {
   let id = ids.get(node);
   if (id === undefined) {
     id = nextId++;
     ids.set(node, id);
+    refs.set(id, new WeakRef(node));
+    cleanup.register(node, id);
   }
   return id;
 }
+
+const nodeOf = (id) => refs.get(id)?.deref() ?? null;
 
 // ── 2. Serializing the DOM ──────────────────────────────────────────
 // postMessage copies data with the "structured clone algorithm", which does
@@ -280,7 +290,142 @@ window.addEventListener('unhandledrejection', (event) => {
   report('rejection', 'error', ['Uncaught (in promise)', event.reason], extra);
 });
 
-// ── 4. Sandbox adaptations ──────────────────────────────────────────
+// ── 4. Highlighting and inspect mode ────────────────────────────────
+// The overlay is NOT drawn here: adding elements to this document would
+// change the user's DOM (and the tree). The agent only measures the node
+// and sends its box model; the app draws the overlay on top of the iframe.
+const nextFrame = window.requestAnimationFrame.bind(window);
+const SIDES = ['Top', 'Right', 'Bottom', 'Left'];
+let tracked = null; // node whose box we are following
+let lastBox = '';
+let following = false;
+
+function measure(node) {
+  if (!node.isConnected) return null;
+  if (node.nodeType === Node.TEXT_NODE) {
+    // A text node has no box of its own, but a Range around it does
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const rect = range.getBoundingClientRect();
+    return rect.width || rect.height ? toBox(rect, null) : null;
+  }
+  // getClientRects() is empty for elements that are not rendered (display: none, <head>…)
+  if (!(node instanceof Element) || node.getClientRects().length === 0) return null;
+  return toBox(node.getBoundingClientRect(), getComputedStyle(node));
+}
+
+function toBox(rect, style) {
+  const sides = (property, suffix = '') =>
+    SIDES.map((side) => (style ? parseFloat(style[`${property}${side}${suffix}`]) || 0 : 0));
+  return {
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height,
+    margin: sides('margin'),
+    border: sides('border', 'Width'),
+    padding: sides('padding'),
+  };
+}
+
+// The first box is sent right away. After that we measure the node on every
+// frame, but only send its box when it changes: scrolling, animations and
+// layout changes are followed for free.
+function track(node) {
+  tracked = node;
+  lastBox = '';
+  if (!node) {
+    send(FROM_AGENT.BOX, { id: null, box: null, label: '' });
+    return;
+  }
+  sendBoxIfChanged();
+  if (!following) {
+    following = true;
+    nextFrame(follow);
+  }
+}
+
+function follow() {
+  if (!tracked) {
+    following = false;
+    return;
+  }
+  sendBoxIfChanged();
+  nextFrame(follow);
+}
+
+function sendBoxIfChanged() {
+  const box = measure(tracked);
+  const key = JSON.stringify(box);
+  if (key === lastBox) return;
+  lastBox = key;
+  send(FROM_AGENT.BOX, { id: idOf(tracked), box, label: nodeLabel(tracked) });
+}
+
+// Inspect mode: hovering highlights, clicking picks. Everything a click is
+// made of is blocked so the user's code never sees it.
+const CLICK_EVENTS = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick', 'auxclick', 'contextmenu'];
+let inspecting = false;
+let hovered = null;
+let cursorSheet = null;
+
+function setInspecting(enabled) {
+  if (enabled === inspecting) return;
+  inspecting = enabled;
+  // A constructed stylesheet changes the cursor without adding a single node to the document
+  cursorSheet ??= new CSSStyleSheet();
+  cursorSheet.replaceSync('* { cursor: crosshair !important; }');
+  document.adoptedStyleSheets = enabled
+    ? [...document.adoptedStyleSheets, cursorSheet]
+    : document.adoptedStyleSheets.filter((sheet) => sheet !== cursorSheet);
+  hovered = null;
+  track(null);
+}
+
+function hover(node) {
+  if (node === hovered) return;
+  hovered = node;
+  // HOVER goes first: the app only accepts boxes for the node it knows is hovered
+  send(FROM_AGENT.HOVER, { id: node ? idOf(node) : null });
+  track(node);
+}
+
+// CAPTURE phase on window, registered before the user's code runs: these
+// listeners go first, before any listener the user adds.
+window.addEventListener(
+  'pointermove',
+  (event) => {
+    if (inspecting) hover(event.target instanceof Node ? event.target : null);
+  },
+  true,
+);
+
+window.addEventListener(
+  'pointerout',
+  (event) => {
+    // relatedTarget null → the pointer left the document
+    if (inspecting && !event.relatedTarget) hover(null);
+  },
+  true,
+);
+
+for (const type of CLICK_EVENTS) {
+  window.addEventListener(
+    type,
+    (event) => {
+      if (!inspecting) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (type !== 'click') return;
+      const node = event.target instanceof Node ? event.target : null;
+      setInspecting(false);
+      send(FROM_AGENT.PICK, { id: node ? idOf(node) : null });
+    },
+    true,
+  );
+}
+
+// ── 5. Sandbox adaptations ──────────────────────────────────────────
 // Without "allow-modals", alert/confirm/prompt do nothing. We replace them
 // so they warn in our console instead of failing silently.
 const MODAL_RESULTS = { alert: undefined, confirm: false, prompt: null };
@@ -316,7 +461,7 @@ window.addEventListener('submit', (event) => {
   ]);
 });
 
-// ── 5. Commands from the app ────────────────────────────────────────
+// ── 6. Commands from the app ────────────────────────────────────────
 window.addEventListener('message', (event) => {
   // We only obey the parent window. The user's code could pretend to be
   // the app with window.postMessage(), but then event.source would be this
@@ -330,14 +475,22 @@ window.addEventListener('message', (event) => {
     message.runId !== runId
   ) return;
 
+  const { payload } = message;
   switch (message.type) {
     case TO_AGENT.REQUEST_SNAPSHOT:
       sendSnapshot();
       break;
+    case TO_AGENT.HIGHLIGHT:
+      // While inspecting, the pointer decides what is highlighted
+      if (!inspecting) track(Number.isInteger(payload?.id) ? nodeOf(payload.id) : null);
+      break;
+    case TO_AGENT.SET_INSPECT:
+      setInspecting(payload?.enabled === true);
+      break;
   }
 });
 
-// ── 6. Startup ──────────────────────────────────────────────────────
+// ── 7. Startup ──────────────────────────────────────────────────────
 // Remove our own <script> so the tree only shows your document.
 document.currentScript?.remove();
 send(FROM_AGENT.READY, {});
