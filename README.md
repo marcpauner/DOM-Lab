@@ -2,7 +2,7 @@
 
 **Write HTML, CSS and JavaScript and see the DOM tree the browser builds, visually.**
 
-[MIT](LICENSE) license
+**[Try it live →](https://marcpauner.github.io/DOM-Lab/)** · [MIT](LICENSE) license
 
 DOM Lab is a playground for learning how the DOM works. Paste your code, it runs in an isolated preview, and the resulting node tree appears next to it: elements, text, comments and attributes, each with its own color. Browser DevTools (F12) are powerful but rough for learning, and tools like Live DOM Viewer or CodePen are visually limited; DOM Lab aims to be friendlier.
 
