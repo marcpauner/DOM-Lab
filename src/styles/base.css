@@ -140,6 +140,13 @@ svg {
   color: var(--text);
 }
 
+.icon-button:disabled {
+  background: transparent;
+  color: var(--text-3);
+  opacity: 0.5;
+  cursor: default;
+}
+
 .icon-button:active {
   background: var(--fill-hover);
 }

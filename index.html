@@ -176,6 +176,17 @@
                 <h2 class="panel__title">DOM</h2>
                 <span id="tree-count" class="panel__subtitle"></span>
                 <div class="panel__actions">
+                  <button id="tree-undo" class="icon-button icon-button--small" type="button" aria-label="Undo the last edit" title="Undo the last edit" disabled>
+                    <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M5.5 3.5 3 6l2.5 2.5M3 6h6.5a3.5 3.5 0 0 1 0 7H7" />
+                    </svg>
+                  </button>
+                  <button id="tree-redo" class="icon-button icon-button--small" type="button" aria-label="Redo" title="Redo" disabled>
+                    <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M10.5 3.5 13 6l-2.5 2.5M13 6H6.5a3.5 3.5 0 0 0 0 7H9" />
+                    </svg>
+                  </button>
+                  <span class="panel__divider" aria-hidden="true"></span>
                   <button id="tree-expand" class="icon-button icon-button--small" type="button" aria-label="Expand all" title="Expand all">
                     <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M8 1.5V6M5.5 3.5 8 1.5l2.5 2M8 14.5V10M5.5 12.5 8 14.5l2.5-2M3 8h10" />
@@ -267,6 +278,13 @@
         That is why <code>childNodes</code> returns more nodes than <code>children</code>, which only includes elements. They almost
         never change what you see, so they are hidden by default.
       </p>
+      <h3>Editing</h3>
+      <p>
+        Right-click a node (or press the menu key) to add children, duplicate, move or delete it. Drag nodes to move them,
+        <code>Alt</code>+<code>↑</code>/<code>↓</code> reorders them and <code>Delete</code> removes them. Edit attributes and text in the
+        details panel below.
+      </p>
+      <p>Edits change the <strong>live DOM</strong>, not your code: run again to start over.</p>
     </div>
 
     <!-- Keyboard shortcuts (native <dialog>) -->

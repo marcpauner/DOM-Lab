@@ -71,7 +71,7 @@ function matches(shortcut, event) {
   );
 }
 
-const isTyping = (target) =>
+export const isTyping = (target) =>
   target instanceof Element && Boolean(target.closest('input, textarea, select, [contenteditable], .cm-editor'));
 
 // CAPTURE phase on window: we see the key before CodeMirror does. That way

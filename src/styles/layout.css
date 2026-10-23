@@ -171,6 +171,13 @@
   margin-left: auto;
 }
 
+.panel__divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--separator);
+}
+
 .panel__body {
   flex: 1;
   min-height: 0;

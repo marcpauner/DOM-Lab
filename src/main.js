@@ -11,7 +11,10 @@ import { createEditors, LANGUAGES } from './editor/editors.js';
 import { PreviewBridge } from './preview/PreviewBridge.js';
 import { Overlay } from './preview/Overlay.js';
 import { FROM_AGENT, TO_AGENT, LIMITS } from './protocol/messages.js';
-import { buildModel, applyPatches } from './tree/model.js';
+import { buildModel, applyPatches, isProtected } from './tree/model.js';
+import { shortLabel } from './tree/renderRow.js';
+import { DomEditor } from './edit/DomEditor.js';
+import { NodeMenu } from './edit/NodeMenu.js';
 import { TreeView } from './tree/TreeView.js';
 import { renderBreadcrumb } from './tree/breadcrumb.js';
 import { ConsolePanel } from './console/ConsolePanel.js';
@@ -20,7 +23,7 @@ import { DetailsPanel } from './details/DetailsPanel.js';
 import { initTheme } from './ui/theme.js';
 import { initSplitters } from './ui/splitters.js';
 import { createSegmented } from './ui/segmented.js';
-import { registerShortcut, listShortcuts, formatShortcut, isMac, SECONDARY } from './ui/shortcuts.js';
+import { registerShortcut, listShortcuts, formatShortcut, isMac, isTyping, SECONDARY } from './ui/shortcuts.js';
 import { readPref, writePref } from './lib/storage.js';
 import { debounce } from './lib/debounce.js';
 import { h } from './lib/dom.js';
@@ -77,6 +80,7 @@ function run({ keepJs = false } = {}) {
   resetHighlight();
   consolePanel.clear();
   changesPanel.reset();
+  domEditor.reset();
   setStatus('running', 'Running…');
   clearTimeout(stallTimer);
   stallTimer = setTimeout(() => {
@@ -134,6 +138,10 @@ preview.addEventListener(FROM_AGENT.MUTATIONS, ({ detail }) => {
   const summary = applyPatches(model, detail.patches);
   tree.applyChanges(summary);
   showStats();
+  if (pendingSelect !== null && tree.select(pendingSelect, { reveal: true })) {
+    pendingSelect = null;
+    tree.focus();
+  }
   // The agent mentioned a node we do not have: start over with a full tree
   if (summary.resync) preview.send(TO_AGENT.REQUEST_SNAPSHOT);
 
@@ -324,6 +332,102 @@ details.addEventListener('select-node', ({ detail }) => {
   if (tree.select(detail.id, { reveal: true })) tree.focus();
 });
 
+// ── Editing the live DOM ────────────────────────────────────────────
+// Every edit is a dom:edit command for the agent, which applies it with the
+// usual DOM methods. The result comes back through the MutationObserver
+// like any other change: the tree updates and the history records it.
+const domEditor = new DomEditor(preview);
+const menu = new NodeMenu();
+const undoButton = $('#tree-undo');
+const redoButton = $('#tree-redo');
+let pendingSelect = null; // a node just created: select it as soon as it reaches the tree
+
+domEditor.addEventListener('history', ({ detail }) => {
+  undoButton.disabled = detail.undo === 0;
+  redoButton.disabled = detail.redo === 0;
+});
+
+domEditor.addEventListener('error', ({ detail }) => {
+  consolePanel.system(`The edit was not applied. ${detail.message}`, 'error');
+  showLog('console');
+});
+
+/** New nodes arrive with the next batch of changes: select them when they do. */
+function selectWhenReady(result) {
+  if (!result.ok || !result.id) return;
+  if (tree.select(result.id, { reveal: true })) tree.focus();
+  else pendingSelect = result.id;
+}
+
+const edit = (change) => domEditor.edit(change);
+
+/** Alt+↑ / Alt+↓: swap places with the previous or next (visible) sibling. */
+function reorder(node, direction) {
+  if (isProtected(node)) return;
+  const siblings = node.parent.children;
+  const visible = (sibling) => !(sibling.isWhitespace && whitespace.checked);
+  let index = siblings.indexOf(node);
+  let target;
+  do {
+    index += direction;
+    target = siblings[index];
+  } while (target && !visible(target));
+  if (!target) return; // already the first or the last one
+  const before = direction < 0 ? target : (siblings[index + 1] ?? null);
+  edit({ op: 'move', id: node.id, parentId: node.parent.id, beforeId: before?.id ?? null });
+}
+
+function remove(node) {
+  if (!isProtected(node)) edit({ op: 'remove', id: node.id });
+}
+
+async function insertChild(parent, kind, at) {
+  const questions = {
+    element: { title: `New element inside ${shortLabel(parent)}`, placeholder: 'Tag name, e.g. li' },
+    text: { title: `New text inside ${shortLabel(parent)}`, placeholder: 'Text' },
+    comment: { title: `New comment inside ${shortLabel(parent)}`, placeholder: 'Comment' },
+  };
+  const value = await menu.ask(at, { ...questions[kind], action: 'Add' });
+  if (value === null) return;
+  selectWhenReady(await edit({ op: 'insert', parentId: parent.id, beforeId: null, kind, value }));
+}
+
+function openMenu(node, at) {
+  const items = [];
+  const canHaveChildren = node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.DOCUMENT_FRAGMENT_NODE;
+  const hasText = node.nodeType === Node.TEXT_NODE || node.nodeType === Node.COMMENT_NODE;
+  const altKeys = (arrow) => (isMac ? `⌥${arrow}` : `Alt+${arrow}`);
+  if (canHaveChildren) {
+    items.push(
+      { label: 'Add child element…', run: () => insertChild(node, 'element', at) },
+      { label: 'Add text…', run: () => insertChild(node, 'text', at) },
+      { label: 'Add comment…', run: () => insertChild(node, 'comment', at) },
+    );
+  }
+  if (hasText) items.push({ label: 'Edit text', keys: 'Double-click', run: () => details.editText() });
+  if (!isProtected(node)) {
+    if (items.length) items.push('separator');
+    items.push(
+      { label: 'Duplicate', run: async () => selectWhenReady(await edit({ op: 'duplicate', id: node.id })) },
+      { label: 'Move up', keys: altKeys('↑'), run: () => reorder(node, -1) },
+      { label: 'Move down', keys: altKeys('↓'), run: () => reorder(node, 1) },
+      'separator',
+      { label: 'Delete', keys: isMac ? '⌫' : 'Del', danger: true, run: () => remove(node) },
+    );
+  }
+  if (items.length) menu.open(at, items, { title: shortLabel(node) });
+}
+
+tree.addEventListener('menu', ({ detail }) => openMenu(detail.node, detail));
+tree.addEventListener('remove', ({ detail }) => remove(detail.node));
+tree.addEventListener('reorder', ({ detail }) => reorder(detail.node, detail.direction));
+tree.addEventListener('move', ({ detail }) => edit({ op: 'move', ...detail }));
+tree.addEventListener('edit-text', () => details.editText());
+details.addEventListener('edit', ({ detail }) => edit(detail));
+
+undoButton.addEventListener('click', () => domEditor.undo());
+redoButton.addEventListener('click', () => domEditor.redo());
+
 // Help popover: placed under its button (getBoundingClientRect)
 const help = $('#tree-help');
 help.addEventListener('beforetoggle', (event) => {
@@ -414,12 +518,19 @@ registerShortcut(`${SECONDARY}+L`, 'Clear the console (or the changes)', clearLo
 registerShortcut(`${SECONDARY}+J`, 'Show or hide the console', toggleConsole);
 registerShortcut(`${SECONDARY}+I`, 'Inspect an element in the preview', () => setInspecting(!inspecting));
 registerShortcut('Escape', 'Cancel inspect mode', () => setInspecting(false), { when: () => inspecting });
+// Outside the editors and text fields (they have their own undo)
+const notTyping = () => modelIsCurrent && !isTyping(document.activeElement);
+registerShortcut('Mod+Z', 'Undo the last DOM edit', () => domEditor.undo(), { when: notTyping });
+registerShortcut('Mod+Shift+Z', 'Redo the DOM edit', () => domEditor.redo(), { when: notTyping });
 registerShortcut('?', 'Show keyboard shortcuts', () => dialog.showModal());
 
 const TREE_KEYS = [
   ['↑ ↓', 'Tree: move between nodes'],
   ['← →', 'Tree: collapse / expand'],
   [isMac ? '⌥ + click' : 'Alt + click', 'Tree: expand with all descendants'],
+  [isMac ? '⌥↑ ⌥↓' : 'Alt+↑ Alt+↓', 'Tree: move the node up / down'],
+  [isMac ? '⌫' : 'Delete', 'Tree: delete the node'],
+  ['Right-click', 'Tree: add, duplicate, move or delete'],
 ];
 
 const dialog = $('#shortcuts-dialog');
