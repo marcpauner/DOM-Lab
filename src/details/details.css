@@ -79,10 +79,6 @@
   overflow-wrap: anywhere;
 }
 
-.details__value {
-  color: var(--syn-string);
-}
-
 .details__hint {
   display: block;
   margin-top: 2px;
@@ -98,26 +94,116 @@
   line-height: 1.5;
 }
 
-.details__pill {
-  display: inline-block;
-  margin: 0 4px 3px 0;
+/* ── Editable attributes and text ────────────────────────────── */
+.attr-row {
+  display: grid;
+  grid-template-columns: minmax(70px, max-content) minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 0 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--separator);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.attr-row__name {
+  color: var(--syn-attr);
+}
+
+/* Looks like plain text until you hover or focus it */
+.attr-row__value,
+.attr-add__input,
+.details__text-input {
+  min-width: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  transition: background-color var(--duration-fast) ease;
+}
+
+.attr-row__value {
+  height: 24px;
   padding: 0 6px;
-  border-radius: 5px;
-  background: var(--fill);
   color: var(--syn-string);
 }
 
-.details__text {
-  max-height: 240px;
-  margin: 0;
-  padding: 8px 10px;
-  overflow: auto;
-  border-radius: var(--radius-md);
-  background: var(--surface-sunken);
+.attr-row__value:hover,
+.details__text-input:hover {
+  background: var(--fill);
+}
+
+.attr-row__value:focus-visible,
+.attr-add__input:focus-visible,
+.details__text-input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 0;
+  background: var(--surface);
+}
+
+.attr-row__remove {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.attr-row:hover .attr-row__remove,
+.attr-row__remove:focus-visible {
+  opacity: 1;
+}
+
+.attr-row__remove:hover {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: var(--red);
+}
+
+.attr-row__hint {
+  grid-column: 2 / -1;
+  margin: 0 0 2px 6px;
+}
+
+.attr-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.attr-add__input {
+  flex: 1;
+  height: 26px;
+  padding: 0 8px;
+  background: var(--fill);
+}
+
+.attr-add__equals {
+  color: var(--text-3);
   font-family: var(--font-mono);
+}
+
+.attr-add__button {
+  height: 26px;
   font-size: var(--text-sm);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+}
+
+.details__text-input {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  padding: 8px 10px;
+  background: var(--surface-sunken);
+  color: var(--text);
+  line-height: 1.5;
+  resize: vertical;
 }
 
 /* ── Box model ───────────────────────────────────────────────── */

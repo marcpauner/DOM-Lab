@@ -72,6 +72,8 @@ export class DetailsPanel extends EventTarget {
   #showAll;
   #styleList;
   #stylesView; // toolbar + list: stay in the DOM so the filter keeps its focus during live updates
+  #nodeStale = false; // the Node tab could not be redrawn because you were typing in it
+  #focusText = false; // focus the text editor as soon as it exists
 
   constructor(host, { tabs, eventsBadge }) {
     super();
@@ -108,9 +110,17 @@ export class DetailsPanel extends EventTarget {
       const target = event.target.closest('button[data-node-id]');
       if (target) this.dispatchEvent(new CustomEvent('select-node', { detail: { id: Number(target.dataset.nodeId) } }));
     });
+    this.#listenForEdits(this.#panels.node);
 
     this.#tabs.select(this.#tab);
     this.#render();
+  }
+
+  /** Opens the Node tab and puts the cursor in the text editor (text and comment nodes). */
+  editText() {
+    this.#focusText = true;
+    this.#tabs.select('node');
+    this.#showTab('node');
   }
 
   /** A new selection: the header updates at once, the rest when the details arrive. */
@@ -158,7 +168,17 @@ export class DetailsPanel extends EventTarget {
       this.#badge.hidden = true;
       return;
     }
-    this.#panels.node.replaceChildren(...this.#nodeTab(details));
+    // While you are typing in a field, live updates must not redraw it under your cursor
+    if (this.#panels.node.contains(document.activeElement)) this.#nodeStale = true;
+    else this.#panels.node.replaceChildren(...this.#nodeTab(details));
+    if (this.#focusText) {
+      const editor = this.#panels.node.querySelector('.details__text-input');
+      if (editor) {
+        this.#focusText = false;
+        editor.focus();
+        editor.select();
+      }
+    }
     this.#panels.box.replaceChildren(...this.#boxTab(details));
     const styles = this.#stylesTab(details);
     // Moving an element (even to the same place) would blur the filter: only do it if needed
@@ -198,23 +218,96 @@ export class DetailsPanel extends EventTarget {
       parts.push(
         section(
           `Attributes (${attributes.length})`,
-          attributes.length ? props(attributes.map(([name, value]) => [name, ...attributeValue(name, value)])) : note('No attributes.'),
+          h('div', { className: 'attr-list' }, ...attributes.map(([name, value]) => attributeRow(name, value))),
+          addAttributeForm(),
         ),
       );
     }
 
     if (details.text !== undefined) {
       const whitespaceOnly = /^[ \t\n\f\r]*$/.test(details.text);
+      const truncated = details.length > details.text.length;
+      const editor = h('textarea', {
+        className: 'details__text-input',
+        rows: Math.min(8, details.text.split('\n').length + 1),
+        readOnly: truncated,
+        'aria-label': 'Text of the node',
+      });
+      editor.defaultValue = details.text;
+      editor.spellcheck = false;
       parts.push(
         section(
           'Text (data)',
-          h('pre', { className: 'details__text' }, whitespaceOnly ? whitespaceSymbols(details.text) : details.text),
-          whitespaceOnly ? note(`Only whitespace: ${explainWhitespace(details.text)}.`) : null,
-          details.length > details.text.length ? note(`Showing the first ${details.text.length} of ${details.length} characters.`) : null,
+          editor,
+          whitespaceOnly ? note(`Only whitespace: ${whitespaceSymbols(details.text)} (${explainWhitespace(details.text)}).`) : null,
+          truncated
+            ? note(`Showing the first ${details.text.length} of ${details.length} characters, so it cannot be edited here.`)
+            : note('Enter saves (Shift+Enter for a new line), Esc cancels.'),
         ),
       );
     }
+    if (details.nodeType !== Node.DOCUMENT_NODE && details.nodeType !== Node.DOCUMENT_TYPE_NODE) {
+      parts.push(note('Edits change the live DOM only, not your code: run again to start over. Undo with Ctrl+Z (⌘Z) in the tree.'));
+    }
     return parts;
+  }
+
+  // ── Editing ─────────────────────────────────────────────────────
+
+  #listenForEdits(panel) {
+    const editable = (target) => target.matches?.('.attr-row__value, .details__text-input') && !target.readOnly;
+
+    panel.addEventListener('keydown', (event) => {
+      if (!editable(event.target)) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.target.value = event.target.defaultValue;
+        event.target.blur();
+      } else if (event.key === 'Enter' && !(event.shiftKey && event.target.tagName === 'TEXTAREA')) {
+        event.preventDefault();
+        this.#commit(event.target);
+        event.target.blur();
+      }
+    });
+
+    // Leaving a field saves it
+    panel.addEventListener('focusout', (event) => {
+      if (editable(event.target)) this.#commit(event.target);
+      // If live updates were waiting for you to finish typing, redraw now
+      setTimeout(() => {
+        if (!this.#nodeStale || panel.contains(document.activeElement)) return;
+        this.#nodeStale = false;
+        this.#render();
+      });
+    });
+
+    panel.addEventListener('click', (event) => {
+      const remove = event.target.closest('.attr-row__remove');
+      if (remove) this.#emitEdit({ op: 'remove-attribute', id: this.#node.id, name: remove.dataset.attr });
+    });
+
+    panel.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const form = event.target;
+      const name = form.elements.name.value.trim();
+      if (!name) return;
+      this.#emitEdit({ op: 'set-attribute', id: this.#node.id, name, value: form.elements.value.value });
+      form.reset();
+      document.activeElement.blur();
+    });
+  }
+
+  #commit(field) {
+    if (field.value === field.defaultValue || !this.#node) return;
+    const edit = field.classList.contains('details__text-input')
+      ? { op: 'set-text', id: this.#node.id, value: field.value }
+      : { op: 'set-attribute', id: this.#node.id, name: field.dataset.attr, value: field.value };
+    field.defaultValue = field.value; // so Enter + blur does not send it twice
+    this.#emitEdit(edit);
+  }
+
+  #emitEdit(edit) {
+    this.dispatchEvent(new CustomEvent('edit', { detail: edit }));
   }
 
   // ── Box: box model diagram and measurements ─────────────────────
@@ -350,19 +443,49 @@ function boxModel(box) {
   );
 }
 
-/** An attribute's value, plus a hint about the JavaScript property that reflects it. */
-function attributeValue(name, value) {
-  const parts = [];
-  if (name === 'class' && value.trim()) {
-    parts.push(...value.trim().split(/\s+/).map((token) => h('span', { className: 'details__pill' }, token)));
-    parts.push(h('span', { className: 'details__hint' }, 'element.classList'));
-  } else {
-    parts.push(h('span', { className: 'details__value' }, value === '' ? '""' : value));
+/** The JavaScript property that reflects an attribute, when there is a well-known one. */
+function attributeHint(name, value) {
+  if (name === 'class') {
+    const count = value.trim() ? value.trim().split(/\s+/).length : 0;
+    return `element.classList (${count} ${count === 1 ? 'class' : 'classes'})`;
   }
-  if (name.startsWith('data-')) parts.push(h('span', { className: 'details__hint' }, `element.dataset.${camelCase(name.slice(5))}`));
-  else if (name === 'style') parts.push(h('span', { className: 'details__hint' }, 'Inline styles: element.style'));
-  else if (name.startsWith('on')) parts.push(h('span', { className: 'details__hint' }, 'Inline event handler'));
-  return parts;
+  if (name === 'id') return 'element.id';
+  if (name.startsWith('data-')) return `element.dataset.${camelCase(name.slice(5))}`;
+  if (name === 'style') return 'Inline styles: element.style';
+  if (name.startsWith('on')) return 'Inline event handler';
+  return null;
+}
+
+/** name | [value, editable] [×] */
+function attributeRow(name, value) {
+  const input = h('input', { className: 'attr-row__value', type: 'text', 'aria-label': `Value of ${name}`, dataset: { attr: name } });
+  input.defaultValue = value;
+  input.spellcheck = false;
+  const hint = attributeHint(name, value);
+  return h(
+    'div',
+    { className: 'attr-row' },
+    h('span', { className: 'attr-row__name' }, name),
+    input,
+    h('button', { className: 'attr-row__remove', type: 'button', title: `Remove ${name}`, 'aria-label': `Remove ${name}`, dataset: { attr: name } }, '×'),
+    hint ? h('span', { className: 'details__hint attr-row__hint' }, hint) : null,
+  );
+}
+
+function addAttributeForm() {
+  const field = (name, placeholder) => {
+    const input = h('input', { className: 'attr-add__input', type: 'text', name, placeholder, 'aria-label': `New attribute ${name}` });
+    input.spellcheck = false;
+    return input;
+  };
+  return h(
+    'form',
+    { className: 'attr-add' },
+    field('name', 'name'),
+    h('span', { className: 'attr-add__equals', 'aria-hidden': 'true' }, '='),
+    field('value', 'value'),
+    h('button', { className: 'button attr-add__button', type: 'submit' }, 'Add'),
+  );
 }
 
 // rgb()/rgba() colors get a swatch. Only a strict rgb() pattern reaches style,
