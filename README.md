@@ -12,7 +12,7 @@ It is built with **plain JavaScript** (no React, no Vue): the app's own source i
 
 > Coming soon: light mode, dark mode and the tree in action (e.g. in `docs/screenshots/`).
 
-## Features (phase 1)
+## Features
 
 - **Editor** for HTML, CSS and JavaScript powered by [CodeMirror 6](https://codemirror.net/): syntax highlighting, autocompletion, tag closing and `Tab` to indent.
 - **Run** with the button or <kbd>Ctrl</kbd>+<kbd>Enter</kbd> (<kbd>⌘</kbd>+<kbd>Enter</kbd> on Mac).
@@ -25,6 +25,8 @@ It is built with **plain JavaScript** (no React, no Vue): the app's own source i
   - breadcrumbs with the `parentNode` chain up to `#document`;
   - option to **hide text nodes that only contain whitespace** (on by default, with an explanation);
   - virtualized: stays smooth with tens of thousands of nodes.
+- **DevTools-style highlighting**: hover a node in the tree, the breadcrumbs or the console and the preview shows its box model (margin, border, padding and content) with its size.
+- **Inspect mode** (<kbd>Alt</kbd>+<kbd>I</kbd>, <kbd>⌃</kbd>+<kbd>I</kbd> on Mac): hover the preview to find elements in the tree, click to select one. Your page's own click handlers do not fire while inspecting.
 - **Built-in console** with `console.log/info/warn/error/debug/table/assert/clear`, uncaught errors and rejected promises:
   - errors link to the line in your code (`script.js:12:5`);
   - if you log a node (`console.log(element)`), one click shows it in the tree;
@@ -41,6 +43,7 @@ It is built with **plain JavaScript** (no React, no Vue): the app's own source i
 | Show or hide whitespace nodes | <kbd>Alt</kbd>+<kbd>W</kbd> | <kbd>⌃</kbd>+<kbd>W</kbd> |
 | Clear the console | <kbd>Alt</kbd>+<kbd>L</kbd> | <kbd>⌃</kbd>+<kbd>L</kbd> |
 | Show or hide the console | <kbd>Alt</kbd>+<kbd>J</kbd> | <kbd>⌃</kbd>+<kbd>J</kbd> |
+| Inspect an element / cancel | <kbd>Alt</kbd>+<kbd>I</kbd> / <kbd>Esc</kbd> | <kbd>⌃</kbd>+<kbd>I</kbd> / <kbd>Esc</kbd> |
 | Show all shortcuts | <kbd>?</kbd> | <kbd>?</kbd> |
 
 On Mac, secondary shortcuts use <kbd>⌃</kbd> rather than <kbd>⌥</kbd> because on many keyboard layouts (Spanish, for example) <kbd>⌥</kbd>+digit types symbols such as `@`, `#` or `|`.
@@ -74,7 +77,8 @@ The full protocol is documented in [`docs/protocol.md`](docs/protocol.md).
 │   ├── agent/agent.js       Runs INSIDE the iframe (injected as text)
 │   ├── preview/
 │   │   ├── srcdoc.js        Builds the preview document
-│   │   └── PreviewBridge.js Creates the iframe and handles postMessage
+│   │   ├── PreviewBridge.js Creates the iframe and handles postMessage
+│   │   └── Overlay.js       Box model overlay drawn on top of the iframe
 │   ├── editor/              CodeMirror editors and their theme
 │   ├── tree/                Tree model, virtualized view, breadcrumbs
 │   ├── console/             Console panel
@@ -89,7 +93,9 @@ The full protocol is documented in [`docs/protocol.md`](docs/protocol.md).
 
 - **`nodeType` and `childNodes`** (`agent/agent.js`): walking the tree, and why `childNodes` includes text and comments while `children` only has elements.
 - **Whitespace text nodes** (`tree/model.js`): why the `\s` regex does not work (it matches `&nbsp;`).
-- **`WeakMap`** (`agent/agent.js`): stable ids per node without keeping them from being garbage collected.
+- **`WeakMap`, `WeakRef` and `FinalizationRegistry`** (`agent/agent.js`): stable ids per node, and the way back from an id to its node, without keeping removed nodes from being garbage collected.
+- **Box model** (`agent/agent.js`, `preview/Overlay.js`): `getBoundingClientRect`, `getComputedStyle`, a `Range` to measure text nodes, and drawing margin / border / padding / content.
+- **Event phases** (`agent/agent.js`): capture-phase listeners on `window` that run before the user's own, plus `stopImmediatePropagation` and `preventDefault`.
 - **`postMessage` and origins** (`preview/PreviewBridge.js`): `event.source`, `event.origin` and `targetOrigin`.
 - **Virtualization** (`tree/TreeView.js`): render only what is visible and animate with `transform`.
 - **Creating nodes safely** (`lib/dom.js`): `createElement` + `append` versus `innerHTML`.
@@ -130,7 +136,7 @@ No repository name needs to be configured: `vite.config.js` uses `base: './'` (r
 ## Roadmap
 
 - [x] **Phase 1**: project structure, editors, isolated run with agent, read-only DOM tree and console.
-- [ ] **Phase 2**: highlight in the preview the node under the pointer (DevTools-style overlay) and "inspect" mode.
+- [x] **Phase 2**: highlight in the preview the node under the pointer (DevTools-style overlay) and "inspect" mode.
 - [ ] **Phase 3**: details panel: attributes, computed styles, visual box model and event listeners.
 - [ ] **Phase 4**: live tree with `MutationObserver`, mutation history and change animations.
 - [ ] **Phase 5**: editing from the UI: attributes, text, add, remove and move nodes.
