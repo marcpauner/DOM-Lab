@@ -147,13 +147,18 @@ const OBSERVE = {
   characterDataOldValue: true,
 };
 const BATCH_MS = 50;
-const pendingRecords = []; // { record, time }
+const pendingRecords = []; // { record, time, source }
 let flushTimer = 0;
 let observing = false;
 
-const observer = new MutationObserver((records) => {
+/** source: 'page' (the user's code) or 'app' (an edit made from DOM Lab's interface) */
+function collect(records, source) {
   const time = Date.now();
-  for (const record of records) pendingRecords.push({ record, time });
+  for (const record of records) pendingRecords.push({ record, time, source });
+}
+
+const observer = new MutationObserver((records) => {
+  collect(records, 'page');
   if (!flushTimer) flushTimer = schedule(flushMutations, BATCH_MS);
 });
 // Saved now: the user's code could replace MutationObserver.prototype.observe later
@@ -183,10 +188,10 @@ function liveValue(record) {
 }
 
 function flushMutations() {
+  clearTimeout(flushTimer);
   flushTimer = 0;
-  const time = Date.now();
+  collect(observer.takeRecords(), 'page');
   const batch = pendingRecords.splice(0);
-  for (const record of observer.takeRecords()) batch.push({ record, time });
   if (batch.length === 0) return;
 
   if (batch.length > LIMITS.MAX_MUTATIONS) {
@@ -244,8 +249,8 @@ function flushMutations() {
   }
 
   const records = [];
-  batch.slice(0, LIMITS.MAX_HISTORY).forEach(({ record, time: when }, index) => {
-    const entry = { type: record.type, time: when, targetId: idOf(record.target), target: nodeLabel(record.target) };
+  batch.slice(0, LIMITS.MAX_HISTORY).forEach(({ record, time, source }, index) => {
+    const entry = { type: record.type, time, source, targetId: idOf(record.target), target: nodeLabel(record.target) };
     if (record.type === 'childList') {
       entry.added = Array.from(record.addedNodes).slice(0, 20).map(nodeRef);
       entry.removed = Array.from(record.removedNodes).slice(0, 20).map(nodeRef);
@@ -769,6 +774,121 @@ function detailsOf(node) {
   return details;
 }
 
+// ── 6b. Edits from the app ──────────────────────────────────────────
+// Edits change the LIVE DOM with the usual DOM methods (setAttribute,
+// insertBefore, remove…). The user's code is not touched: running again
+// starts over. Every edit is stored as a pair of functions, apply and
+// revert, so it can be undone and redone.
+const undoStack = [];
+const redoStack = [];
+const MAX_UNDO = 100;
+
+function liveNode(id) {
+  const node = Number.isInteger(id) ? nodeOf(id) : null;
+  if (!node || !node.isConnected) throw new Error('That node is no longer in the document.');
+  return node;
+}
+
+/** The node's current position, to put it back exactly there. */
+function placeOf(node) {
+  const parent = node.parentNode;
+  const next = node.nextSibling;
+  return () => parent.insertBefore(node, next?.parentNode === parent ? next : null);
+}
+
+/** @returns {{ apply: Function, revert: Function, id?: number }} */
+function editFor(edit) {
+  switch (edit.op) {
+    case 'set-attribute':
+    case 'remove-attribute': {
+      const element = liveNode(edit.id);
+      const name = String(edit.name);
+      const old = element.getAttribute(name);
+      const restore = () => (old === null ? element.removeAttribute(name) : element.setAttribute(name, old));
+      return edit.op === 'set-attribute'
+        ? { apply: () => element.setAttribute(name, String(edit.value)), revert: restore }
+        : { apply: () => element.removeAttribute(name), revert: restore };
+    }
+    case 'set-text': {
+      const node = liveNode(edit.id);
+      if (typeof node.data !== 'string') throw new TypeError('Only text and comment nodes have text of their own.');
+      const old = node.data;
+      return { apply: () => (node.data = String(edit.value)), revert: () => (node.data = old) };
+    }
+    case 'insert': {
+      const parent = liveNode(edit.parentId);
+      const before = edit.beforeId === null ? null : liveNode(edit.beforeId);
+      const value = String(edit.value);
+      // The three ways of creating nodes: createElement, createTextNode and createComment
+      const node =
+        edit.kind === 'element'
+          ? document.createElement(value.trim())
+          : edit.kind === 'comment'
+            ? document.createComment(value)
+            : document.createTextNode(value);
+      return { id: idOf(node), apply: () => parent.insertBefore(node, before), revert: () => node.remove() };
+    }
+    case 'duplicate': {
+      const node = liveNode(edit.id);
+      // cloneNode(true) copies the whole subtree… but not the listeners added with addEventListener
+      const copy = node.cloneNode(true);
+      return { id: idOf(copy), apply: () => node.after(copy), revert: () => copy.remove() };
+    }
+    case 'move': {
+      const node = liveNode(edit.id);
+      const parent = liveNode(edit.parentId);
+      const before = edit.beforeId === null ? null : liveNode(edit.beforeId);
+      // insertBefore with a node that is already in the document MOVES it: a node is never in two places
+      return { apply: () => parent.insertBefore(node, before), revert: placeOf(node) };
+    }
+    case 'remove': {
+      const node = liveNode(edit.id);
+      if (!node.parentNode) throw new Error('That node has no parent.');
+      return { apply: () => node.remove(), revert: placeOf(node) };
+    }
+    default:
+      throw new Error(`Unknown edit "${edit.op}".`);
+  }
+}
+
+function applyEdit(edit) {
+  if (edit.op === 'undo' || edit.op === 'redo') {
+    const [from, to] = edit.op === 'undo' ? [undoStack, redoStack] : [redoStack, undoStack];
+    const step = from.pop();
+    if (!step) return {};
+    try {
+      if (edit.op === 'undo') step.revert();
+      else step.apply();
+    } catch (error) {
+      to.length = 0; // the history no longer matches the document
+      throw error;
+    }
+    to.push(step);
+    return {};
+  }
+  const step = editFor(edit);
+  step.apply();
+  undoStack.push(step);
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+  redoStack.length = 0;
+  return step.id === undefined ? {} : { id: step.id };
+}
+
+function runEdit(requestId, edit) {
+  let result;
+  // Changes the page made before this edit belong to the page; the ones made now, to the app
+  collect(observer.takeRecords(), 'page');
+  try {
+    result = { ok: true, ...applyEdit(edit ?? {}) };
+  } catch (error) {
+    result = { ok: false, error: `${error.name}: ${error.message}` };
+  }
+  collect(observer.takeRecords(), 'app');
+  // Edits should feel instant: send the changes right away instead of waiting for the batch
+  flushMutations();
+  send(FROM_AGENT.EDIT_RESULT, { requestId, ...result, undo: undoStack.length, redo: redoStack.length });
+}
+
 // ── 7. Commands from the app ────────────────────────────────────────
 window.addEventListener('message', (event) => {
   // We only obey the parent window. The user's code could pretend to be
@@ -794,6 +914,9 @@ window.addEventListener('message', (event) => {
       break;
     case TO_AGENT.SET_INSPECT:
       setInspecting(payload?.enabled === true);
+      break;
+    case TO_AGENT.EDIT:
+      if (Number.isInteger(payload?.requestId)) runEdit(payload.requestId, payload.edit);
       break;
     case TO_AGENT.REQUEST_DETAILS: {
       if (!Number.isInteger(payload?.id)) break;
