@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content="Write HTML, CSS and JavaScript and explore the resulting DOM tree visually." />
+    <title>DOM Lab</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // Apply the saved theme before the first paint (avoids a flash).
+      try {
+        const theme = JSON.parse(localStorage.getItem('dom-lab:theme'));
+        if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+      } catch {}
+    </script>
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="toolbar">
+        <div class="toolbar__brand">
+          <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+            <defs>
+              <linearGradient id="logo-gradient" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#0a84ff" />
+                <stop offset="1" stop-color="#bf5af2" />
+              </linearGradient>
+            </defs>
+            <rect width="32" height="32" rx="8" fill="url(#logo-gradient)" />
+            <path d="M11 10v12M11 15.5h7M11 22h7" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" />
+            <g fill="#fff">
+              <circle cx="11" cy="9" r="2.8" />
+              <circle cx="20.5" cy="15.5" r="2.8" />
+              <circle cx="20.5" cy="22" r="2.8" />
+            </g>
+          </svg>
+          <h1 class="toolbar__title">DOM Lab</h1>
+        </div>
+
+        <div class="toolbar__center">
+          <button id="run-button" class="button button--primary" type="button">
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M5.2 3.1A.8.8 0 0 0 4 3.8v8.4a.8.8 0 0 0 1.2.7l7-4.2a.8.8 0 0 0 0-1.4z" fill="currentColor" />
+            </svg>
+            <span>Run</span>
+            <kbd id="run-kbd"></kbd>
+          </button>
+          <label
+            class="switch-label"
+            title="Runs again when you edit HTML or CSS. JavaScript only runs when you ask for it, so a half-typed loop cannot freeze the page."
+          >
+            <input id="autorun" class="switch" type="checkbox" role="switch" checked />
+            <span>Auto</span>
+          </label>
+        </div>
+
+        <div class="toolbar__end">
+          <button id="shortcuts-button" class="icon-button" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="1.5" y="3.5" width="13" height="9" rx="2" />
+              <path d="M4.5 6.5h.01M7 6.5h.01M9.5 6.5h.01M12 6.5h.01M5.5 9.5h5" />
+            </svg>
+          </button>
+          <button id="theme-button" class="icon-button theme-button" type="button">
+            <svg class="icon icon--system" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4">
+              <circle cx="8" cy="8" r="6" />
+              <path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor" stroke="none" />
+            </svg>
+            <svg class="icon icon--light" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+              <circle cx="8" cy="8" r="3" />
+              <path d="M8 1.5v1.2M8 13.3v1.2M1.5 8h1.2M13.3 8h1.2M3.4 3.4l.85.85M11.75 11.75l.85.85M3.4 12.6l.85-.85M11.75 4.25l.85-.85" />
+            </svg>
+            <svg class="icon icon--dark" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+              <path d="M13.5 9.6A5.6 5.6 0 0 1 6.4 2.5a5.6 5.6 0 1 0 7.1 7.1z" />
+            </svg>
+          </button>
+          <a
+            class="icon-button"
+            href="https://github.com/marcpauner/dom-lab"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Source code on GitHub"
+            title="Source code on GitHub"
+          >
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+              />
+            </svg>
+          </a>
+        </div>
+      </header>
+
+      <main id="workspace" class="workspace">
+        <!-- Editor -->
+        <section class="panel panel--editor" aria-label="Code editor">
+          <header class="panel__header panel__header--overlay">
+            <div class="segmented" role="tablist" aria-label="Language">
+              <span class="segmented__thumb" aria-hidden="true"></span>
+              <button class="segmented__item" type="button" role="tab" data-editor-tab="html">HTML</button>
+              <button class="segmented__item" type="button" role="tab" data-editor-tab="css">CSS</button>
+              <button class="segmented__item" type="button" role="tab" data-editor-tab="js">
+                JS<span id="js-pending-dot" class="pending-dot" title="Changes not run yet" hidden></span>
+              </button>
+            </div>
+          </header>
+          <div id="editor-host" class="panel__body editor-host"></div>
+        </section>
+
+        <div class="splitter splitter--x" data-splitter="editor" role="separator" aria-orientation="vertical" aria-label="Editor width" tabindex="0"></div>
+
+        <div id="stack" class="stack">
+          <!-- Preview -->
+          <section class="panel panel--preview" aria-label="Preview">
+            <header class="panel__header">
+              <h2 class="panel__title">Preview</h2>
+              <span id="preview-status" class="status" data-state="idle" role="status"></span>
+              <div class="panel__actions">
+                <button id="pending-js" class="pill pill--warning" type="button" title="Your JavaScript has changed since the last run" hidden>
+                  JS not run <kbd></kbd>
+                </button>
+              </div>
+            </header>
+            <div id="preview-host" class="preview-host"></div>
+          </section>
+
+          <div class="splitter splitter--y" data-splitter="console" role="separator" aria-orientation="horizontal" aria-label="Console height" tabindex="0"></div>
+
+          <!-- Console -->
+          <section class="panel panel--console" aria-label="Console">
+            <header class="panel__header panel__header--overlay">
+              <h2 class="panel__title">Console</h2>
+              <span id="console-errors" class="badge badge--error" hidden></span>
+              <span id="console-warnings" class="badge badge--warn" hidden></span>
+              <div class="panel__actions">
+                <button id="console-clear" class="icon-button icon-button--small" type="button" aria-label="Clear the console" title="Clear the console">
+                  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2.5 4.5h11M6.5 4.5V3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M4 4.5l.6 8.6a1 1 0 0 0 1 .9h4.8a1 1 0 0 0 1-.9l.6-8.6" />
+                  </svg>
+                </button>
+                <button id="console-toggle" class="icon-button icon-button--small collapse-button" type="button" aria-label="Collapse the console" aria-expanded="true">
+                  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 6l4 4 4-4" />
+                  </svg>
+                </button>
+              </div>
+            </header>
+            <div id="console-host" class="panel__body console-host"></div>
+          </section>
+        </div>
+
+        <div class="splitter splitter--x" data-splitter="tree" role="separator" aria-orientation="vertical" aria-label="DOM tree width" tabindex="0"></div>
+
+        <!-- DOM tree -->
+        <section class="panel panel--tree" aria-label="DOM tree">
+          <header id="tree-header" class="panel__header panel__header--overlay panel__header--tall">
+            <div class="panel__header-row">
+              <h2 class="panel__title">DOM</h2>
+              <span id="tree-count" class="panel__subtitle"></span>
+              <div class="panel__actions">
+                <button id="tree-expand" class="icon-button icon-button--small" type="button" aria-label="Expand all" title="Expand all">
+                  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 1.5V6M5.5 3.5 8 1.5l2.5 2M8 14.5V10M5.5 12.5 8 14.5l2.5-2M3 8h10" />
+                  </svg>
+                </button>
+                <button id="tree-collapse" class="icon-button icon-button--small" type="button" aria-label="Collapse all" title="Collapse all">
+                  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 1.5V6M5.5 3.5 8 6l2.5-2.5M8 14.5V10M5.5 12.5 8 10l2.5 2.5M3 8h10" />
+                  </svg>
+                </button>
+                <button id="tree-refresh" class="icon-button icon-button--small" type="button" aria-label="Read the DOM again" title="Read the DOM again">
+                  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="panel__header-row panel__header-row--sub">
+              <label class="switch-label">
+                <input id="ws-toggle" class="switch" type="checkbox" role="switch" checked />
+                <span>Hide whitespace <span id="ws-count" class="muted"></span></span>
+              </label>
+              <button class="icon-button icon-button--small" type="button" popovertarget="tree-help" aria-label="How to read the tree" title="How to read the tree">
+                <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                  <circle cx="8" cy="8" r="6.25" />
+                  <path d="M8 7.25V11M8 5h.01" />
+                </svg>
+              </button>
+            </div>
+          </header>
+          <div id="tree-host"></div>
+          <footer id="tree-breadcrumb" class="panel__footer breadcrumb" aria-label="Path of the selected node"></footer>
+        </section>
+      </main>
+    </div>
+
+    <!-- Tree help (native Popover API) -->
+    <div id="tree-help" class="popover" popover>
+      <h3>How to read the tree</h3>
+      <ul class="legend">
+        <li style="--dot: var(--node-element)">
+          <span class="legend__dot"></span><span class="legend__name">Element</span><span class="legend__type">nodeType 1</span>
+        </li>
+        <li style="--dot: var(--node-text)">
+          <span class="legend__dot"></span><span class="legend__name">Text</span><span class="legend__type">nodeType 3</span>
+        </li>
+        <li style="--dot: var(--node-comment)">
+          <span class="legend__dot"></span><span class="legend__name">Comment</span><span class="legend__type">nodeType 8</span>
+        </li>
+        <li style="--dot: var(--node-document)">
+          <span class="legend__dot"></span><span class="legend__name">Document</span><span class="legend__type">nodeType 9, 10 and 11</span>
+        </li>
+      </ul>
+      <p style="margin-top: 10px">
+        Attributes appear inside their element as <code>name="value"</code>. Hover over a node to see its type.
+      </p>
+      <h3>Whitespace</h3>
+      <p>
+        The line breaks and indentation you use to keep your HTML tidy also end up in the DOM: they become <strong>text nodes</strong>
+        that only contain whitespace (<code>↵</code> line break, <code>·</code> space, <code>→</code> tab).
+      </p>
+      <p>
+        That is why <code>childNodes</code> returns more nodes than <code>children</code>, which only includes elements. They almost
+        never change what you see, so they are hidden by default.
+      </p>
+    </div>
+
+    <!-- Keyboard shortcuts (native <dialog>) -->
+    <dialog id="shortcuts-dialog" class="dialog" closedby="any" aria-labelledby="shortcuts-title">
+      <header class="dialog__header">
+        <h2 id="shortcuts-title">Keyboard shortcuts</h2>
+        <form method="dialog">
+          <button class="icon-button" aria-label="Close">
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+              <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+            </svg>
+          </button>
+        </form>
+      </header>
+      <div class="dialog__body">
+        <dl id="shortcut-list" class="shortcut-list"></dl>
+      </div>
+    </dialog>
+  </body>
+</html>
