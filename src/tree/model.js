@@ -163,6 +163,16 @@ export function buildModel(rawRoot) {
   return model;
 }
 
+/**
+ * Nodes that hold the document together: #document, the doctype, <html>,
+ * <head> and <body>. They can be edited inside, but not moved, duplicated
+ * or removed from the interface.
+ */
+export function isProtected(node) {
+  if (!node.parent || node.parent.nodeType === Node.DOCUMENT_NODE) return true;
+  return node.parent.parent?.nodeType === Node.DOCUMENT_NODE && (node.nodeName === 'HEAD' || node.nodeName === 'BODY');
+}
+
 /** Takes a node and everything below it out of the model. */
 function removeSubtree(model, node, removed) {
   const stack = [node];

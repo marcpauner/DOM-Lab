@@ -1,5 +1,6 @@
 import { h } from '../lib/dom.js';
 import { renderRow } from './renderRow.js';
+import { isProtected } from './model.js';
 import './tree.css';
 
 const ROW_HEIGHT = 26;
@@ -44,6 +45,9 @@ export class TreeView extends EventTarget {
   #canvasTop = 0;
   #frame = 0;
   #animationTimer = 0;
+  #dragged = null; // node being dragged
+  #drop = null; // where it would land: { parentId, beforeId, … }
+  #dropMarker;
 
   constructor(scroller) {
     super();
@@ -56,12 +60,22 @@ export class TreeView extends EventTarget {
 
     this.#canvas = h('div', { className: 'tree__canvas' });
     this.#placeholder = h('div', { className: 'tree__placeholder' }, 'Waiting for the preview…');
-    scroller.append(this.#canvas, this.#placeholder);
+    this.#dropMarker = h('div', { className: 'tree__drop', hidden: true });
+    scroller.append(this.#canvas, this.#placeholder, this.#dropMarker);
 
     scroller.addEventListener('scroll', () => this.#scheduleRender(), { passive: true });
     scroller.addEventListener('click', (event) => this.#onClick(event));
     scroller.addEventListener('dblclick', (event) => this.#onDoubleClick(event));
     scroller.addEventListener('keydown', (event) => this.#onKeyDown(event));
+    scroller.addEventListener('contextmenu', (event) => this.#onContextMenu(event));
+    // Drag and drop (HTML Drag and Drop API) to move nodes
+    scroller.addEventListener('dragstart', (event) => this.#onDragStart(event));
+    scroller.addEventListener('dragover', (event) => this.#onDragOver(event));
+    scroller.addEventListener('drop', (event) => this.#onDrop(event));
+    scroller.addEventListener('dragend', () => this.#endDrag());
+    scroller.addEventListener('dragleave', (event) => {
+      if (!scroller.contains(event.relatedTarget)) this.#showDrop(null);
+    });
     // If the panel changes size, more or fewer rows fit
     new ResizeObserver(() => {
       this.#canvasTop = this.#canvas.offsetTop;
@@ -324,6 +338,7 @@ export class TreeView extends EventTarget {
       let row = this.#rendered.get(node.id);
       if (!row) {
         row = renderRow(node, { childCount: this.#visibleChildren(node).length });
+        row.draggable = !isProtected(node);
         const from = animate ? previousIndex.get(node.id) : undefined;
         // Was it already in the list (off screen)? It slides in from its old place.
         // Is it new (its parent was just expanded)? It fades in.
@@ -406,13 +421,141 @@ export class TreeView extends EventTarget {
   #onDoubleClick(event) {
     if (event.target.closest('.tree-row__twisty')) return;
     const node = this.#nodeFromEvent(event);
-    if (node && this.#visibleChildren(node).length > 0) this.toggle(node);
+    if (!node) return;
+    // Double click on text or a comment: edit it
+    if (node.nodeType === Node.TEXT_NODE || node.nodeType === Node.COMMENT_NODE) {
+      this.#setSelected(node);
+      this.#emit('edit-text', { node });
+    } else if (this.#visibleChildren(node).length > 0) {
+      this.toggle(node);
+    }
+  }
+
+  #onContextMenu(event) {
+    const node = this.#nodeFromEvent(event);
+    if (!node) return;
+    event.preventDefault();
+    this.#setSelected(node);
+    this.#emit('menu', { node, x: event.clientX, y: event.clientY });
+  }
+
+  #emit(type, detail) {
+    this.dispatchEvent(new CustomEvent(type, { detail }));
+  }
+
+  // ── Drag and drop ───────────────────────────────────────────────
+
+  #onDragStart(event) {
+    const node = this.#nodeFromEvent(event);
+    if (!node || isProtected(node)) {
+      event.preventDefault();
+      return;
+    }
+    this.#dragged = node;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', ''); // Firefox only starts a drag if there is some data
+    event.target.closest('.tree-row').classList.add('is-dragging');
+  }
+
+  #onDragOver(event) {
+    if (!this.#dragged) return;
+    const target = this.#nodeFromEvent(event);
+    const drop = target ? this.#dropFor(target, event.clientY) : null;
+    this.#showDrop(drop);
+    if (!drop) return;
+    // preventDefault() in dragover is what tells the browser "you may drop here"
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    // Near the edges, scroll so you can drag far away
+    const box = this.#scroller.getBoundingClientRect();
+    if (event.clientY < box.top + this.#canvasTop + 20) this.#scroller.scrollTop -= 12;
+    else if (event.clientY > box.bottom - 20) this.#scroller.scrollTop += 12;
+  }
+
+  #onDrop(event) {
+    event.preventDefault();
+    const drop = this.#drop;
+    const node = this.#dragged;
+    this.#endDrag();
+    if (drop && node) this.#emit('move', { id: node.id, parentId: drop.parentId, beforeId: drop.beforeId });
+  }
+
+  #endDrag() {
+    this.#dragged = null;
+    this.#showDrop(null);
+    for (const row of this.#canvas.querySelectorAll('.is-dragging')) row.classList.remove('is-dragging');
+  }
+
+  /**
+   * Where the dragged node would land over this row: the top third means
+   * "before", the bottom third "after", the middle "inside" (as the last child).
+   */
+  #dropFor(target, clientY) {
+    const row = this.#rendered.get(target.id);
+    if (!row || target === this.#dragged) return null;
+    const rect = row.getBoundingClientRect();
+    const y = (clientY - rect.top) / rect.height;
+    const canContain = target.nodeType === Node.ELEMENT_NODE || target.nodeType === Node.DOCUMENT_FRAGMENT_NODE;
+    let position = y < 0.3 ? 'before' : y > 0.7 ? 'after' : 'inside';
+    if (position === 'inside' && !canContain) position = y < 0.5 ? 'before' : 'after';
+
+    let parent;
+    let before;
+    let depth = target.depth;
+    if (position === 'inside') {
+      parent = target;
+      before = null; // last child
+    } else if (position === 'after' && this.#isExpanded(target) && this.#visibleChildren(target).length > 0) {
+      // Under an open element, the line sits on top of its children: it means "first child"
+      parent = target;
+      before = target.children[0];
+      depth += 1;
+    } else {
+      // Nothing can go next to <html> (a document has a single root element)
+      if (!target.parent || target.parent.nodeType === Node.DOCUMENT_NODE) return null;
+      parent = target.parent;
+      before = position === 'before' ? target : (parent.children[parent.children.indexOf(target) + 1] ?? null);
+    }
+    // A node cannot go inside itself or one of its descendants
+    for (let ancestor = parent; ancestor; ancestor = ancestor.parent) if (ancestor === this.#dragged) return null;
+    return { position, target, depth, parentId: parent.id, beforeId: before?.id ?? null };
+  }
+
+  /** A line between rows (before / after) or a frame around the row (inside). */
+  #showDrop(drop) {
+    this.#drop = drop;
+    const marker = this.#dropMarker;
+    marker.hidden = !drop;
+    if (!drop) return;
+    const index = this.#indexById.get(drop.target.id) ?? 0;
+    const top = this.#canvasTop + index * ROW_HEIGHT + (drop.position === 'after' ? ROW_HEIGHT : 0);
+    marker.dataset.position = drop.position;
+    marker.style.setProperty('--depth', drop.depth);
+    marker.style.top = `${top}px`;
   }
 
   #onKeyDown(event) {
     if (this.#rows.length === 0 || event.ctrlKey || event.metaKey) return;
     let index = this.#indexById.get(this.#selectedId) ?? -1;
     const node = this.#rows[index];
+
+    // Editing keys: Delete / Backspace removes, Alt+↑↓ moves among siblings, the menu key opens the menu
+    if (node && (event.key === 'Delete' || event.key === 'Backspace')) {
+      event.preventDefault();
+      this.#emit('remove', { node });
+      return;
+    }
+    if (node && event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault();
+      this.#emit('reorder', { node, direction: event.key === 'ArrowUp' ? -1 : 1 });
+      return;
+    }
+    if (node && (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) {
+      event.preventDefault();
+      const rect = this.#rendered.get(node.id)?.getBoundingClientRect();
+      this.#emit('menu', { node, x: (rect?.left ?? 0) + 40, y: rect?.bottom ?? 0 });
+      return;
+    }
     const expandable = node ? this.#visibleChildren(node).length > 0 : false;
     const expanded = expandable && this.#isExpanded(node);
     const page = Math.max(1, Math.floor((this.#scroller.clientHeight - this.#canvasTop) / ROW_HEIGHT) - 1);
