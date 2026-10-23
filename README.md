@@ -28,12 +28,18 @@ It is built with **plain JavaScript** (no React, no Vue): the app's own source i
   - virtualized: stays smooth with tens of thousands of nodes.
 - **DevTools-style highlighting**: hover a node in the tree, the breadcrumbs or the console and the preview shows its box model (margin, border, padding and content) with its size.
 - **Inspect mode** (<kbd>Alt</kbd>+<kbd>I</kbd>, <kbd>⌃</kbd>+<kbd>I</kbd> on Mac): hover the preview to find elements in the tree, click to select one. Your page's own click handlers do not fire while inspecting.
+- **Edit the live DOM** from the interface:
+  - attributes (change, add, remove) and text, right in the details panel;
+  - right-click a node (or press the menu key) to add a child element, text or comment, duplicate it, move it or delete it;
+  - drag nodes in the tree to move them, <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> to reorder, <kbd>Delete</kbd> to remove;
+  - undo and redo (<kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>);
+  - edits change the **live DOM**, not your code: running again starts over. They show up in the history with an "edit" tag.
 - **Details panel** for the selected node:
-  - **Node**: `nodeName`, `nodeType`, `childNodes` / `children` and attributes, with the JavaScript property that reflects them (`data-user-id` → `element.dataset.userId`, `class` → `element.classList`);
+  - **Node**: `nodeName`, `nodeType`, `childNodes` / `children` and attributes (editable), with the JavaScript property that reflects them (`data-user-id` → `element.dataset.userId`, `class` → `element.classList`);
   - **Box**: a visual box model (margin, border, padding, content) plus `getBoundingClientRect()`, `offset*`, `client*` and `scroll*`;
   - **Styles**: computed styles grouped by topic (layout, flexbox, grid, spacing, typography, appearance), with a filter, color swatches and the full list;
   - **Events**: listeners added with `addEventListener`, `el.onclick = …` or `onclick="…"`, on the node and on its ancestors (event delegation).
-- **History of changes** (Changes tab, next to the console): every node added, removed or replaced, every attribute and text change, with the time since your code started. Repeated changes, like an animation updating the same attribute, are grouped. Watch `innerHTML +=` replace *all* the children, not just add one.
+- **History of changes** (Changes tab, next to the console): every node added, removed or replaced, every attribute and text change, with the time since your code started. A node moved with `appendChild` / `insertBefore` shows up as "Moved", which makes clear that a node is never in two places at once. Repeated changes, like an animation updating the same attribute, are grouped. Watch `innerHTML +=` replace *all* the children, not just add one.
 - **Built-in console** with `console.log/info/warn/error/debug/table/assert/clear`, uncaught errors and rejected promises:
   - errors link to the line in your code (`script.js:12:5`);
   - if you log a node (`console.log(element)`), one click shows it in the tree;
@@ -51,6 +57,9 @@ It is built with **plain JavaScript** (no React, no Vue): the app's own source i
 | Clear the console (or the changes) | <kbd>Alt</kbd>+<kbd>L</kbd> | <kbd>⌃</kbd>+<kbd>L</kbd> |
 | Show or hide the console | <kbd>Alt</kbd>+<kbd>J</kbd> | <kbd>⌃</kbd>+<kbd>J</kbd> |
 | Inspect an element / cancel | <kbd>Alt</kbd>+<kbd>I</kbd> / <kbd>Esc</kbd> | <kbd>⌃</kbd>+<kbd>I</kbd> / <kbd>Esc</kbd> |
+| Undo / redo a DOM edit (outside the editors) | <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | <kbd>⌘</kbd>+<kbd>Z</kbd> / <kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>Z</kbd> |
+| Tree: move the node up / down | <kbd>Alt</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd> | <kbd>⌥</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd> |
+| Tree: delete the node | <kbd>Delete</kbd> | <kbd>⌫</kbd> |
 | Show all shortcuts | <kbd>?</kbd> | <kbd>?</kbd> |
 
 On Mac, secondary shortcuts use <kbd>⌃</kbd> rather than <kbd>⌥</kbd> because on many keyboard layouts (Spanish, for example) <kbd>⌥</kbd>+digit types symbols such as `@`, `#` or `|`.
@@ -90,6 +99,7 @@ The full protocol is documented in [`docs/protocol.md`](docs/protocol.md).
 │   ├── tree/                Tree model, virtualized view, breadcrumbs
 │   ├── details/             Details panel: node, box model, styles, listeners
 │   ├── changes/             History of DOM changes
+│   ├── edit/                Edit commands, undo/redo and the node context menu
 │   ├── console/             Console panel
 │   ├── ui/                  Theme, resizable panels and shortcuts
 │   ├── lib/                 Helpers: h() to create elements, debounce, preferences
@@ -105,6 +115,8 @@ The full protocol is documented in [`docs/protocol.md`](docs/protocol.md).
 - **`WeakMap`, `WeakRef` and `FinalizationRegistry`** (`agent/agent.js`): stable ids per node, and the way back from an id to its node, without keeping removed nodes from being garbage collected.
 - **Box model** (`agent/agent.js`, `preview/Overlay.js`): `getBoundingClientRect`, `getComputedStyle`, a `Range` to measure text nodes, and drawing margin / border / padding / content.
 - **Event phases** (`agent/agent.js`): capture-phase listeners on `window` that run before the user's own, plus `stopImmediatePropagation` and `preventDefault`.
+- **Creating and moving nodes** (`agent/agent.js`): `createElement`, `createTextNode`, `createComment`, `insertBefore` (which *moves* a node that is already in the document), `cloneNode(true)` (which does not copy listeners) and `remove()`, plus an undo stack built from pairs of functions.
+- **Drag and drop** (`tree/TreeView.js`): the HTML Drag and Drop API (`dragstart`, `dragover` + `preventDefault()`, `drop`).
 - **`MutationObserver`** (`agent/agent.js`, `tree/model.js`): observing a whole document, batching records, and why describing the current state is more robust than replaying each record.
 - **Listing event listeners** (`agent/agent.js`): there is no standard API for it, so the agent wraps `EventTarget.prototype.addEventListener` before your code runs.
 - **Computed styles and measurements** (`agent/agent.js`, `details/DetailsPanel.js`): `getComputedStyle`, and the difference between `offsetWidth`, `clientWidth` and `scrollWidth`.
@@ -151,7 +163,7 @@ No repository name needs to be configured: `vite.config.js` uses `base: './'` (r
 - [x] **Phase 2**: highlight in the preview the node under the pointer (DevTools-style overlay) and "inspect" mode.
 - [x] **Phase 3**: details panel: attributes, computed styles, visual box model and event listeners.
 - [x] **Phase 4**: live tree with `MutationObserver`, mutation history and change animations.
-- [ ] **Phase 5**: editing from the UI: attributes, text, add, remove and move nodes.
+- [x] **Phase 5**: editing from the UI: attributes, text, add, remove and move nodes.
 - [ ] **Phase 6**: `localStorage` persistence, templates, code export and sharing via URL.
 
 ## Known limitations
