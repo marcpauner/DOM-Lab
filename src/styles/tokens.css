@@ -1,0 +1,108 @@
+/*
+ * DESIGN SYSTEM
+ * Every visual decision lives here as a custom property.
+ *
+ * Light/dark mode: light-dark(light, dark) picks a value based on the
+ * color-scheme property. By default it follows the system (prefers-color-scheme);
+ * the manual toggle sets data-theme="light" | "dark" on <html>.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter Variable', Inter, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --code-size: 12.5px;
+
+  /* Spacing and shape */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+  --gap: 8px;
+  --toolbar-h: 52px;
+  --panel-header-h: 44px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast: 120ms;
+  --duration: 220ms;
+
+  /* Surfaces */
+  --bg: light-dark(#f2f2f7, #0c0c0e);
+  --wallpaper-1: light-dark(rgb(0 122 255 / 0.10), rgb(10 132 255 / 0.12));
+  --wallpaper-2: light-dark(rgb(175 82 222 / 0.08), rgb(191 90 242 / 0.10));
+  --surface: light-dark(#ffffff, #1c1c1e);
+  --surface-raised: light-dark(#ffffff, #2c2c2e);
+  --surface-sunken: light-dark(#f7f7f9, #151517);
+  --glass: light-dark(rgb(255 255 255 / 0.72), rgb(28 28 30 / 0.72));
+  --glass-strong: light-dark(rgb(255 255 255 / 0.86), rgb(44 44 46 / 0.86));
+  --blur: saturate(180%) blur(20px);
+
+  /* Text */
+  --text: light-dark(#1d1d1f, #f5f5f7);
+  --text-2: light-dark(#6e6e73, #a1a1a6);
+  --text-3: light-dark(#a1a1a6, #6e6e73);
+
+  /* Lines, fills and shadows */
+  --separator: light-dark(rgb(60 60 67 / 0.12), rgb(84 84 88 / 0.40));
+  --fill: light-dark(rgb(118 118 128 / 0.10), rgb(118 118 128 / 0.20));
+  --fill-hover: light-dark(rgb(118 118 128 / 0.16), rgb(118 118 128 / 0.28));
+  --fill-active: light-dark(rgb(118 118 128 / 0.24), rgb(118 118 128 / 0.36));
+  --ring: light-dark(rgb(0 0 0 / 0.05), rgb(255 255 255 / 0.07));
+  --shadow-color: light-dark(rgb(0 0 0 / 0.07), rgb(0 0 0 / 0.45));
+  --shadow-panel: 0 0 0 1px var(--ring), 0 1px 2px var(--shadow-color), 0 8px 24px var(--shadow-color);
+  --shadow-float: 0 0 0 1px var(--ring), 0 12px 40px light-dark(rgb(0 0 0 / 0.14), rgb(0 0 0 / 0.6));
+
+  /* System colors (Apple palette) */
+  --accent: light-dark(#0071e3, #0a84ff);
+  --accent-hover: light-dark(#0077ed, #409cff);
+  --accent-soft: light-dark(rgb(0 113 227 / 0.12), rgb(10 132 255 / 0.22));
+  --on-accent: #ffffff;
+  --focus-ring: light-dark(rgb(0 113 227 / 0.45), rgb(10 132 255 / 0.6));
+  --red: light-dark(#ff3b30, #ff453a);
+  --orange: light-dark(#ff9500, #ff9f0a);
+  --yellow: light-dark(#ffcc00, #ffd60a);
+  --green: light-dark(#34c759, #30d158);
+  --blue: light-dark(#007aff, #0a84ff);
+  --purple: light-dark(#af52de, #bf5af2);
+
+  /* Syntax highlighting (inspired by Xcode) */
+  --syn-tag: light-dark(#ad3da4, #fc5fa3);
+  --syn-attr: light-dark(#815f03, #e0b46c);
+  --syn-string: light-dark(#c41a16, #fc6a5d);
+  --syn-number: light-dark(#1c00cf, #d0bf69);
+  --syn-keyword: light-dark(#9b2393, #fc5fa3);
+  --syn-comment: light-dark(#5d6c79, #7f8c98);
+  --syn-function: light-dark(#326d74, #67b7a4);
+  --syn-type: light-dark(#0b4f79, #5dd8ff);
+  --syn-property: light-dark(#3900a0, #a167e6);
+  --syn-meta: light-dark(#643820, #fd8f3f);
+  --editor-selection: light-dark(rgb(0 113 227 / 0.18), rgb(10 132 255 / 0.32));
+  --editor-active-line: light-dark(rgb(0 0 0 / 0.025), rgb(255 255 255 / 0.04));
+
+  /* Node types in the tree */
+  --node-element: var(--blue);
+  --node-text: var(--orange);
+  --node-comment: var(--green);
+  --node-document: var(--purple);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
