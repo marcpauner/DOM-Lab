@@ -1,0 +1,154 @@
+.changes-host {
+  padding-top: var(--panel-header-h);
+  overscroll-behavior: contain;
+}
+
+.changes {
+  font-size: var(--text-sm);
+}
+
+.changes__empty {
+  padding: var(--space-4);
+  color: var(--text-3);
+  line-height: 1.5;
+}
+
+/* ── One change ──────────────────────────────────────────────── */
+.change {
+  --change-color: var(--text-3);
+
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 6px 12px 6px 14px;
+  border-bottom: 1px solid var(--separator);
+  line-height: 1.5;
+  animation: log-in var(--duration) var(--ease-out);
+}
+
+.change--added {
+  --change-color: var(--green);
+}
+
+.change--removed {
+  --change-color: var(--red);
+}
+
+.change--replaced {
+  --change-color: var(--orange);
+}
+
+.change--attribute,
+.change--text {
+  --change-color: var(--purple);
+}
+
+.change--system .change__body {
+  color: var(--text-2);
+  font-style: italic;
+}
+
+/* A small symbol in the change's color: + added, − removed, ⇄ replaced, ✎ edited */
+.change__icon {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--change-color) 18%, transparent);
+  color: var(--change-color);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.change--added .change__icon::before {
+  content: '+';
+}
+
+.change--removed .change__icon::before {
+  content: '−';
+}
+
+.change--replaced .change__icon::before {
+  content: '⇄';
+}
+
+.change--attribute .change__icon::before,
+.change--text .change__icon::before {
+  content: '✎';
+}
+
+.change__body {
+  min-width: 0;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.change__node {
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--fill);
+  color: var(--syn-tag);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+button.change__node {
+  cursor: pointer;
+}
+
+button.change__node:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.change__node--removed {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+.change__attr {
+  color: var(--syn-attr);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.change__old {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-decoration: line-through;
+}
+
+.change__value {
+  color: var(--syn-string);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.change__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.change__time {
+  font-variant-numeric: tabular-nums;
+}
+
+.change__repeat {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--change-color) 20%, transparent);
+  color: var(--change-color);
+  font-weight: 700;
+  text-align: center;
+}
