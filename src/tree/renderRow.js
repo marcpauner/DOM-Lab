@@ -6,7 +6,7 @@ import { h } from '../lib/dom.js';
  * text come from the iframe and could contain malicious HTML.
  */
 
-const KINDS = {
+export const KINDS = {
   [Node.ELEMENT_NODE]: 'element',
   [Node.TEXT_NODE]: 'text',
   [Node.CDATA_SECTION_NODE]: 'text',
@@ -17,7 +17,7 @@ const KINDS = {
   [Node.DOCUMENT_FRAGMENT_NODE]: 'document',
 };
 
-const TYPE_NAMES = {
+export const TYPE_NAMES = {
   [Node.ELEMENT_NODE]: 'ELEMENT_NODE',
   [Node.TEXT_NODE]: 'TEXT_NODE',
   [Node.CDATA_SECTION_NODE]: 'CDATA_SECTION_NODE',
@@ -28,7 +28,7 @@ const TYPE_NAMES = {
   [Node.DOCUMENT_FRAGMENT_NODE]: 'DOCUMENT_FRAGMENT_NODE',
 };
 
-const KIND_LABELS = { element: 'Element', text: 'Text', comment: 'Comment', document: 'Document' };
+export const KIND_LABELS = { element: 'Element', text: 'Text', comment: 'Comment', document: 'Document' };
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
@@ -40,7 +40,7 @@ export function displayName(node) {
 
 /** Short label for breadcrumbs: div#app.card */
 export function shortLabel(node) {
-  if (node.nodeType !== Node.ELEMENT_NODE) return label(node).map((part) => part.textContent).join('');
+  if (node.nodeType !== Node.ELEMENT_NODE) return renderLabel(node).map((part) => part.textContent).join('');
   let text = displayName(node);
   const id = node.attributes.find(([name]) => name === 'id')?.[1];
   const className = node.attributes.find(([name]) => name === 'class')?.[1].trim().split(/\s+/)[0];
@@ -64,7 +64,7 @@ export function renderRow(node, { childCount }) {
     },
     h('span', { className: 'tree-row__twisty', 'aria-hidden': 'true' }),
     h('span', { className: 'tree-row__dot', 'aria-hidden': 'true' }),
-    h('span', { className: 'tree-row__label' }, ...label(node)),
+    h('span', { className: 'tree-row__label' }, ...renderLabel(node)),
   );
   row.style.setProperty('--depth', node.depth);
   if (node.isWhitespace) row.classList.add('tree-row--whitespace');
@@ -78,7 +78,8 @@ export function renderRow(node, { childCount }) {
 const tok = (kind, text) => h('span', { className: `tok tok--${kind}` }, text);
 const preview = (text, max = 120) => (text.length > max ? `${text.slice(0, max)}…` : text);
 
-function label(node) {
+/** The node written as tokens: <div id="app">, "text", <!--comment-->… */
+export function renderLabel(node) {
   switch (node.nodeType) {
     case Node.ELEMENT_NODE:
       return elementLabel(node);
@@ -124,13 +125,13 @@ function textLabel(value) {
 }
 
 /** Makes invisible characters visible: ↵ line break, · space, → tab */
-function whitespaceSymbols(value) {
+export function whitespaceSymbols(value) {
   if (value === '') return '""';
   const symbols = [...value.slice(0, 24)].map((char) => (char === '\n' ? '↵' : char === '\t' ? '→' : '·')).join('');
   return value.length > 24 ? `${symbols}…` : symbols;
 }
 
-function explainWhitespace(value) {
+export function explainWhitespace(value) {
   const count = (char) => value.split(char).length - 1;
   const parts = [];
   const lines = count('\n');
