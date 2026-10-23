@@ -18,7 +18,8 @@ It is built with **plain JavaScript** (no React, no Vue): the app's own source i
 - **Run** with the button or <kbd>Ctrl</kbd>+<kbd>Enter</kbd> (<kbd>⌘</kbd>+<kbd>Enter</kbd> on Mac).
 - **Auto-run** when editing HTML or CSS. JavaScript only runs when you ask for it, so a half-typed loop (`while (true) {}`) cannot freeze the tab.
 - **Isolated preview** in a sandboxed `iframe` with no access to the app.
-- **DOM tree** of the resulting document:
+- **Live DOM tree** of the resulting document:
+  - updates by itself when your JavaScript changes the DOM (`MutationObserver`): new nodes flash green, changed text and attributes flash purple;
   - colors per node type (element, text, comment, document) and attributes as "pills";
   - animated expand and collapse (<kbd>Alt</kbd>+click for the whole branch);
   - keyboard navigation (arrows, Home, End, Page Up / Page Down);
@@ -32,6 +33,7 @@ It is built with **plain JavaScript** (no React, no Vue): the app's own source i
   - **Box**: a visual box model (margin, border, padding, content) plus `getBoundingClientRect()`, `offset*`, `client*` and `scroll*`;
   - **Styles**: computed styles grouped by topic (layout, flexbox, grid, spacing, typography, appearance), with a filter, color swatches and the full list;
   - **Events**: listeners added with `addEventListener`, `el.onclick = …` or `onclick="…"`, on the node and on its ancestors (event delegation).
+- **History of changes** (Changes tab, next to the console): every node added, removed or replaced, every attribute and text change, with the time since your code started. Repeated changes, like an animation updating the same attribute, are grouped. Watch `innerHTML +=` replace *all* the children, not just add one.
 - **Built-in console** with `console.log/info/warn/error/debug/table/assert/clear`, uncaught errors and rejected promises:
   - errors link to the line in your code (`script.js:12:5`);
   - if you log a node (`console.log(element)`), one click shows it in the tree;
@@ -46,7 +48,7 @@ It is built with **plain JavaScript** (no React, no Vue): the app's own source i
 | Run | <kbd>Ctrl</kbd>+<kbd>Enter</kbd> or <kbd>Ctrl</kbd>+<kbd>S</kbd> | <kbd>⌘</kbd>+<kbd>↵</kbd> or <kbd>⌘</kbd>+<kbd>S</kbd> |
 | Edit HTML / CSS / JS | <kbd>Alt</kbd>+<kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd> | <kbd>⌃</kbd>+<kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd> |
 | Show or hide whitespace nodes | <kbd>Alt</kbd>+<kbd>W</kbd> | <kbd>⌃</kbd>+<kbd>W</kbd> |
-| Clear the console | <kbd>Alt</kbd>+<kbd>L</kbd> | <kbd>⌃</kbd>+<kbd>L</kbd> |
+| Clear the console (or the changes) | <kbd>Alt</kbd>+<kbd>L</kbd> | <kbd>⌃</kbd>+<kbd>L</kbd> |
 | Show or hide the console | <kbd>Alt</kbd>+<kbd>J</kbd> | <kbd>⌃</kbd>+<kbd>J</kbd> |
 | Inspect an element / cancel | <kbd>Alt</kbd>+<kbd>I</kbd> / <kbd>Esc</kbd> | <kbd>⌃</kbd>+<kbd>I</kbd> / <kbd>Esc</kbd> |
 | Show all shortcuts | <kbd>?</kbd> | <kbd>?</kbd> |
@@ -66,9 +68,9 @@ On Mac, secondary shortcuts use <kbd>⌃</kbd> rather than <kbd>⌥</kbd> becaus
 ```
 
 1. `preview/srcdoc.js` builds a full document with your code and, before anything else, the **agent** (`agent/agent.js`).
-2. The agent captures `console.*` and errors, and once the document has loaded it **walks the DOM** and turns it into plain objects.
+2. The agent captures `console.*` and errors, and once the document has loaded it **walks the DOM** and turns it into plain objects. From then on, a `MutationObserver` reports every change.
 3. It sends them to the app with `postMessage`. `PreviewBridge` validates every message and re-emits it as a `CustomEvent`.
-4. `tree/model.js` validates the tree again, node by node, and `TreeView` renders it.
+4. `tree/model.js` validates the tree again, node by node, and `TreeView` renders it. Live changes arrive as small patches that update the model in place.
 
 The full protocol is documented in [`docs/protocol.md`](docs/protocol.md).
 
@@ -87,6 +89,7 @@ The full protocol is documented in [`docs/protocol.md`](docs/protocol.md).
 │   ├── editor/              CodeMirror editors and their theme
 │   ├── tree/                Tree model, virtualized view, breadcrumbs
 │   ├── details/             Details panel: node, box model, styles, listeners
+│   ├── changes/             History of DOM changes
 │   ├── console/             Console panel
 │   ├── ui/                  Theme, resizable panels and shortcuts
 │   ├── lib/                 Helpers: h() to create elements, debounce, preferences
@@ -102,6 +105,7 @@ The full protocol is documented in [`docs/protocol.md`](docs/protocol.md).
 - **`WeakMap`, `WeakRef` and `FinalizationRegistry`** (`agent/agent.js`): stable ids per node, and the way back from an id to its node, without keeping removed nodes from being garbage collected.
 - **Box model** (`agent/agent.js`, `preview/Overlay.js`): `getBoundingClientRect`, `getComputedStyle`, a `Range` to measure text nodes, and drawing margin / border / padding / content.
 - **Event phases** (`agent/agent.js`): capture-phase listeners on `window` that run before the user's own, plus `stopImmediatePropagation` and `preventDefault`.
+- **`MutationObserver`** (`agent/agent.js`, `tree/model.js`): observing a whole document, batching records, and why describing the current state is more robust than replaying each record.
 - **Listing event listeners** (`agent/agent.js`): there is no standard API for it, so the agent wraps `EventTarget.prototype.addEventListener` before your code runs.
 - **Computed styles and measurements** (`agent/agent.js`, `details/DetailsPanel.js`): `getComputedStyle`, and the difference between `offsetWidth`, `clientWidth` and `scrollWidth`.
 - **`postMessage` and origins** (`preview/PreviewBridge.js`): `event.source`, `event.origin` and `targetOrigin`.
@@ -146,14 +150,14 @@ No repository name needs to be configured: `vite.config.js` uses `base: './'` (r
 - [x] **Phase 1**: project structure, editors, isolated run with agent, read-only DOM tree and console.
 - [x] **Phase 2**: highlight in the preview the node under the pointer (DevTools-style overlay) and "inspect" mode.
 - [x] **Phase 3**: details panel: attributes, computed styles, visual box model and event listeners.
-- [ ] **Phase 4**: live tree with `MutationObserver`, mutation history and change animations.
+- [x] **Phase 4**: live tree with `MutationObserver`, mutation history and change animations.
 - [ ] **Phase 5**: editing from the UI: attributes, text, add, remove and move nodes.
 - [ ] **Phase 6**: `localStorage` persistence, templates, code export and sharing via URL.
 
 ## Known limitations
 
-- The tree is read when the page loads (`DOMContentLoaded` and `load`). Later changes (for example in a `setTimeout` or after clicking a button) show up with **Read the DOM again** (↻). The live tree comes in phase 4.
-- The details panel shows the node as it was when you selected it. After changes, select it again or press ↻.
+- Changes inside shadow roots and `<template>` content are not observed live: press **Read the DOM again** (↻) to see them.
+- The history starts once the page has loaded: what your script does while it first runs is already part of the initial tree.
 - Only listeners added by your code are listed: the preview starts recording them right before your code runs.
 - The HTML panel represents the content of `<body>`. If you paste a full document, the browser ignores the repeated `<html>`, `<head>` and `<body>` tags.
 - `alert()`, `confirm()` and `prompt()` are disabled in the sandbox: a warning shows up in the console.
