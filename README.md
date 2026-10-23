@@ -44,6 +44,11 @@ It is built with **plain JavaScript** (no React, no Vue): the app's own source i
   - errors link to the line in your code (`script.js:12:5`);
   - if you log a node (`console.log(element)`), one click shows it in the tree;
   - repeated messages are grouped with a counter.
+- **Your work is saved** in the browser (`localStorage`) as you type, and comes back when you reopen the page.
+- **Examples** to start from: events and delegation, creating elements with `<template>`, classes and `dataset`, timers, walking the tree…
+- **Export**: download your code as a single `index.html`, or the **live DOM** as it is right now (`outerHTML`).
+- **Share with a link**: the code travels compressed inside the URL, after the `#`, so nothing is uploaded anywhere. For safety, the JavaScript of a shared link only runs once you press Run.
+- **Freeze protection**: if your JavaScript never finished last time (an infinite loop), it does not run again by itself when you reload.
 - **Light and dark mode** (follows the system) with a manual toggle.
 - **Resizable panels** (keyboard accessible too) and **keyboard shortcuts** (press <kbd>?</kbd>).
 
@@ -51,7 +56,8 @@ It is built with **plain JavaScript** (no React, no Vue): the app's own source i
 
 | Action | Windows / Linux | Mac |
 | --- | --- | --- |
-| Run | <kbd>Ctrl</kbd>+<kbd>Enter</kbd> or <kbd>Ctrl</kbd>+<kbd>S</kbd> | <kbd>⌘</kbd>+<kbd>↵</kbd> or <kbd>⌘</kbd>+<kbd>S</kbd> |
+| Run | <kbd>Ctrl</kbd>+<kbd>Enter</kbd> | <kbd>⌘</kbd>+<kbd>↵</kbd> |
+| Save and run | <kbd>Ctrl</kbd>+<kbd>S</kbd> | <kbd>⌘</kbd>+<kbd>S</kbd> |
 | Edit HTML / CSS / JS | <kbd>Alt</kbd>+<kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd> | <kbd>⌃</kbd>+<kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd> |
 | Show or hide whitespace nodes | <kbd>Alt</kbd>+<kbd>W</kbd> | <kbd>⌃</kbd>+<kbd>W</kbd> |
 | Clear the console (or the changes) | <kbd>Alt</kbd>+<kbd>L</kbd> | <kbd>⌃</kbd>+<kbd>L</kbd> |
@@ -101,9 +107,10 @@ The full protocol is documented in [`docs/protocol.md`](docs/protocol.md).
 │   ├── changes/             History of DOM changes
 │   ├── edit/                Edit commands, undo/redo and the node context menu
 │   ├── console/             Console panel
-│   ├── ui/                  Theme, resizable panels and shortcuts
+│   ├── project/             Saving, sharing links (#code=…) and export
+│   ├── ui/                  Theme, panels, shortcuts, menus and toasts
 │   ├── lib/                 Helpers: h() to create elements, debounce, preferences
-│   ├── examples/            Starter code
+│   ├── examples/            Example projects
 │   └── styles/              Design system (custom properties) and layout
 └── docs/protocol.md         Message protocol documentation
 ```
@@ -123,6 +130,7 @@ The full protocol is documented in [`docs/protocol.md`](docs/protocol.md).
 - **`postMessage` and origins** (`preview/PreviewBridge.js`): `event.source`, `event.origin` and `targetOrigin`.
 - **Virtualization** (`tree/TreeView.js`): render only what is visible and animate with `transform`.
 - **Creating nodes safely** (`lib/dom.js`): `createElement` + `append` versus `innerHTML`.
+- **Files and links** (`project/`): `localStorage`, a `Blob` + `URL.createObjectURL` + `<a download>` to download a file, `CompressionStream` and base64url to fit code in a link, and why the part after `#` never reaches a server.
 - **Modern native APIs**: `<dialog>`, the `popover` attribute, `ResizeObserver`, View Transitions, `light-dark()`.
 
 ## Security
@@ -164,7 +172,7 @@ No repository name needs to be configured: `vite.config.js` uses `base: './'` (r
 - [x] **Phase 3**: details panel: attributes, computed styles, visual box model and event listeners.
 - [x] **Phase 4**: live tree with `MutationObserver`, mutation history and change animations.
 - [x] **Phase 5**: editing from the UI: attributes, text, add, remove and move nodes.
-- [ ] **Phase 6**: `localStorage` persistence, templates, code export and sharing via URL.
+- [x] **Phase 6**: `localStorage` persistence, templates, code export and sharing via URL.
 
 ## Known limitations
 
@@ -173,7 +181,8 @@ No repository name needs to be configured: `vite.config.js` uses `base: './'` (r
 - Only listeners added by your code are listed: the preview starts recording them right before your code runs.
 - The HTML panel represents the content of `<body>`. If you paste a full document, the browser ignores the repeated `<html>`, `<head>` and `<body>` tags.
 - `alert()`, `confirm()` and `prompt()` are disabled in the sandbox: a warning shows up in the console.
-- If your JS enters an infinite loop, depending on the browser the app's tab may freeze too.
+- If your JS enters an infinite loop, depending on the browser the app's tab may freeze too. When you reload, that JavaScript does not run again until you press Run.
+- Your code is saved in **this** browser only (`localStorage`). To take it to another computer, export it or share a link. Private windows forget it when they close.
 - Shortcuts do not work while focus is inside the preview (it is a different document).
 
 ## License
