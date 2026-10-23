@@ -1,0 +1,342 @@
+.tree {
+  --indent: 14px;
+  --guide: light-dark(rgb(0 0 0 / 0.07), rgb(255 255 255 / 0.07));
+
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-top: var(--tree-header-h, 78px);
+  overscroll-behavior: contain;
+  outline: none;
+}
+
+.tree__canvas {
+  position: relative;
+  margin: 4px 0 16px;
+}
+
+.tree__placeholder {
+  position: absolute;
+  inset: var(--tree-header-h, 78px) 0 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+  color: var(--text-3);
+  text-align: center;
+}
+
+/* ── Rows ────────────────────────────────────────────────────── */
+.tree-row {
+  position: absolute;
+  top: 0;
+  left: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  height: var(--row-h);
+  padding: 0 8px 0 calc(6px + var(--depth) * var(--indent));
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+/* Vertical indent guides: one line per depth level */
+.tree-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(6px + var(--indent) / 2);
+  width: calc(var(--depth) * var(--indent));
+  background-image: repeating-linear-gradient(to right, var(--guide) 0 1px, transparent 1px var(--indent));
+  pointer-events: none;
+}
+
+.tree-row:hover {
+  background: var(--fill);
+}
+
+/* Transitions are only enabled while expanding or collapsing */
+.tree__canvas.is-animating .tree-row {
+  transition:
+    transform var(--duration) var(--ease-out),
+    translate var(--duration) var(--ease-out),
+    opacity var(--duration) var(--ease-out);
+}
+
+.tree-row.is-entering {
+  opacity: 0;
+  translate: 0 -6px;
+}
+
+.tree-row.is-leaving {
+  opacity: 0;
+  transition-duration: var(--duration-fast) !important;
+}
+
+/* Selection: gray when the tree is not focused, accent color when it is (like macOS) */
+.tree-row.is-selected {
+  background: var(--fill-hover);
+}
+
+.tree:focus-visible .tree-row.is-selected,
+.tree:focus .tree-row.is-selected {
+  background: var(--accent);
+  color: var(--on-accent);
+
+  --syn-tag: currentColor;
+  --syn-attr: rgb(255 255 255 / 0.85);
+  --syn-string: currentColor;
+  --syn-comment: rgb(255 255 255 / 0.85);
+  --text: currentColor;
+  --text-2: rgb(255 255 255 / 0.8);
+  --text-3: rgb(255 255 255 / 0.7);
+  --fill: rgb(255 255 255 / 0.2);
+  --guide: transparent;
+}
+
+.tree-row.is-flashing {
+  animation: flash 1s var(--ease-out);
+}
+
+@keyframes flash {
+  0%,
+  40% {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+}
+
+/* Disclosure arrow */
+.tree-row__twisty {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--indent);
+  height: 100%;
+  margin-right: 2px;
+  color: var(--text-3);
+}
+
+.tree-row.has-children .tree-row__twisty::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M3.5 1.8 6.7 5 3.5 8.2' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  transition: rotate var(--duration) var(--ease-out);
+}
+
+.tree-row.has-children .tree-row__twisty:hover {
+  color: var(--text);
+}
+
+.tree-row[aria-expanded='true'] .tree-row__twisty::before {
+  rotate: 90deg;
+}
+
+/* Colored dot: node type */
+.tree-row__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+
+.tree-row--element {
+  --dot: var(--node-element);
+}
+
+.tree-row--text {
+  --dot: var(--node-text);
+}
+
+.tree-row--comment {
+  --dot: var(--node-comment);
+}
+
+.tree-row--document {
+  --dot: var(--node-document);
+}
+
+.tree:focus .tree-row.is-selected .tree-row__dot {
+  background: currentColor;
+}
+
+.tree-row__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Child count while the node is collapsed */
+.tree-row__count {
+  flex: none;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--fill);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tree-row[aria-expanded='true'] .tree-row__count {
+  display: none;
+}
+
+/* ── Tokens: each part of the node in its color ────────────────── */
+.tok--punct {
+  color: var(--text-3);
+}
+
+.tok--tag {
+  color: var(--syn-tag);
+  font-weight: 600;
+}
+
+/* Each attribute is a small "pill" so it stands apart from the tag */
+.tok-attr {
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--fill);
+}
+
+.tok-attr + .tok--punct {
+  margin-left: 1px;
+}
+
+.tok--attr-name {
+  color: var(--syn-attr);
+}
+
+.tok--attr-value {
+  color: var(--syn-string);
+}
+
+/* Document text uses the regular font: it is content, not code */
+.tok--text {
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+}
+
+.tok--ws {
+  color: var(--text-3);
+  letter-spacing: 0.08em;
+}
+
+.tree-row--whitespace .tree-row__label {
+  padding: 0 5px;
+  border: 1px dashed var(--separator);
+  border-radius: 5px;
+  line-height: 16px;
+}
+
+.tok--comment {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+
+.tok--doctype {
+  color: var(--text-2);
+}
+
+.tok--document {
+  color: var(--node-document);
+  font-weight: 600;
+}
+
+.tree:focus .tree-row.is-selected .tok--document {
+  color: inherit;
+}
+
+/* ── Breadcrumbs (ancestors of the selected node) ───────────── */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 34px;
+  padding: 0 var(--space-2);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+
+.breadcrumb__hint {
+  padding: 0 var(--space-2);
+  color: var(--text-3);
+  font-family: var(--font-sans);
+}
+
+.breadcrumb__item {
+  flex: none;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.breadcrumb__item:hover {
+  background: var(--fill);
+  color: var(--text);
+}
+
+.breadcrumb__item[aria-current='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.breadcrumb__separator {
+  flex: none;
+  color: var(--text-3);
+}
+
+/* ── Legend (in the help popover) ────────────────────────────── */
+.legend {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend li {
+  display: grid;
+  grid-template-columns: 10px auto 1fr;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+
+.legend__name {
+  font-weight: 600;
+}
+
+.legend__type {
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
