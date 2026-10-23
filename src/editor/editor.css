@@ -1,0 +1,9 @@
+.editor-host {
+  position: relative;
+  overflow: hidden;
+}
+
+.editor-host .cm-editor {
+  position: absolute;
+  inset: 0;
+}
