@@ -140,6 +140,18 @@ svg {
   color: var(--text);
 }
 
+/* A quiet button: just an icon and a label, until you hover it */
+.button--plain {
+  padding: 0 10px;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.button--plain:hover {
+  background: var(--fill);
+  color: var(--text);
+}
+
 .icon-button:disabled {
   background: transparent;
   color: var(--text-3);

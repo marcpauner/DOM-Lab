@@ -53,6 +53,17 @@ export function createEditors(host, { initial, onChange }) {
   return {
     getValue: (id) => views.get(id).state.doc.toString(),
 
+    /** All the code: { html, css, js } */
+    getCode: () => Object.fromEntries(LANGUAGES.map((lang) => [lang.id, views.get(lang.id).state.doc.toString()])),
+
+    /** Replaces the code of every editor. It is a normal change: Ctrl+Z in an editor undoes it. */
+    setCode(code) {
+      for (const lang of LANGUAGES) {
+        const view = views.get(lang.id);
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: code[lang.id] ?? '' } });
+      }
+    },
+
     show(id) {
       if (active === id) return;
       for (const [key, view] of views) view.dom.hidden = key !== id;

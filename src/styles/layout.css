@@ -44,7 +44,37 @@
 .toolbar__center {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
+}
+
+.toolbar__divider {
+  width: 1px;
+  height: 18px;
+  background: var(--separator);
+}
+
+/* "Saved" appears for a moment after each save, then fades away */
+.save-status {
+  margin-left: auto;
+  padding-right: var(--space-2);
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  opacity: 0;
+}
+
+.save-status.is-visible {
+  animation: saved 1.8s ease forwards;
+}
+
+@keyframes saved {
+  15%,
+  70% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
 }
 
 .toolbar__end {
@@ -375,6 +405,13 @@
   }
 
   .button--primary kbd {
+    display: none;
+  }
+}
+
+/* Medium screens: the toolbar buttons keep only their icon */
+@media (max-width: 1180px) {
+  .button--plain span {
     display: none;
   }
 }

@@ -2,16 +2,17 @@ import { h } from '../lib/dom.js';
 import './menu.css';
 
 /**
- * Context menu for a tree node, built on the native Popover API: the
- * browser closes it when you click outside or press Esc ("light dismiss").
- * It can also turn into a small one-field form (e.g. "tag name").
+ * A floating menu built on the native Popover API: the browser closes it
+ * when you click outside or press Esc ("light dismiss"). Used for the tree's
+ * context menu and the toolbar menus. It can also show a one-field form
+ * (e.g. "tag name") or any other content.
  */
-export class NodeMenu {
+export class Menu {
   #popover;
   #returnFocus = null;
 
   constructor() {
-    this.#popover = h('div', { className: 'node-menu', popover: 'auto', role: 'menu' });
+    this.#popover = h('div', { className: 'menu', popover: 'auto' });
     this.#popover.addEventListener('keydown', (event) => this.#onKeyDown(event));
     this.#popover.addEventListener('toggle', (event) => {
       if (event.newState === 'closed') this.#returnFocus?.focus({ preventScroll: true });
@@ -19,21 +20,28 @@ export class NodeMenu {
     document.body.append(this.#popover);
   }
 
+  /** Just below an element, aligned with its left edge. */
+  static below(element) {
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left, y: rect.bottom + 6 };
+  }
+
   /**
    * @param {{ x: number, y: number }} at  Where to open it (viewport coordinates)
-   * @param {Array<{ label: string, keys?: string, danger?: boolean, run: () => void } | 'separator'>} items
+   * @param {Array<{ label: string, description?: string, keys?: string, danger?: boolean, run: () => void } | 'separator'>} items
    */
   open(at, items, { title } = {}) {
     this.#rememberFocus();
+    this.#popover.setAttribute('role', 'menu');
     this.#popover.replaceChildren(
-      title ? h('div', { className: 'node-menu__title' }, title) : null,
+      title ? h('div', { className: 'menu__title' }, title) : null,
       ...items.map((item) =>
         item === 'separator'
-          ? h('div', { className: 'node-menu__separator', role: 'separator' })
+          ? h('div', { className: 'menu__separator', role: 'separator' })
           : h(
               'button',
               {
-                className: `node-menu__item${item.danger ? ' node-menu__item--danger' : ''}`,
+                className: `menu__item${item.danger ? ' menu__item--danger' : ''}${item.description ? ' menu__item--described' : ''}`,
                 type: 'button',
                 role: 'menuitem',
                 onclick: () => {
@@ -41,7 +49,7 @@ export class NodeMenu {
                   item.run();
                 },
               },
-              h('span', {}, item.label),
+              h('span', { className: 'menu__label' }, item.label, item.description ? h('small', {}, item.description) : null),
               item.keys ? h('kbd', {}, item.keys) : null,
             ),
       ),
@@ -54,13 +62,13 @@ export class NodeMenu {
   ask(at, { title, placeholder, action }) {
     this.#rememberFocus();
     return new Promise((resolve) => {
-      const input = h('input', { className: 'node-menu__input', type: 'text', placeholder, 'aria-label': title });
+      const input = h('input', { className: 'menu__input', type: 'text', placeholder, 'aria-label': title });
       input.spellcheck = false;
       const form = h(
         'form',
-        { className: 'node-menu__form' },
-        h('div', { className: 'node-menu__title' }, title),
-        h('div', { className: 'node-menu__row' }, input, h('button', { className: 'button button--primary', type: 'submit' }, action)),
+        { className: 'menu__form' },
+        h('div', { className: 'menu__title' }, title),
+        h('div', { className: 'menu__row' }, input, h('button', { className: 'button button--primary', type: 'submit' }, action)),
       );
       let answered = false;
       form.addEventListener('submit', (event) => {
@@ -78,10 +86,19 @@ export class NodeMenu {
         if (!answered) resolve(null);
       };
       this.#popover.addEventListener('toggle', onToggle);
+      this.#popover.setAttribute('role', 'dialog');
       this.#popover.replaceChildren(form);
       this.#show(at);
       input.focus();
     });
+  }
+
+  /** Any content (e.g. the share panel). */
+  show(at, ...content) {
+    this.#rememberFocus();
+    this.#popover.setAttribute('role', 'dialog');
+    this.#popover.replaceChildren(h('div', { className: 'menu__content' }, ...content));
+    this.#show(at);
   }
 
   close() {

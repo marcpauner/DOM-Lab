@@ -14,7 +14,12 @@ import { FROM_AGENT, TO_AGENT, LIMITS } from './protocol/messages.js';
 import { buildModel, applyPatches, isProtected } from './tree/model.js';
 import { shortLabel } from './tree/renderRow.js';
 import { DomEditor } from './edit/DomEditor.js';
-import { NodeMenu } from './edit/NodeMenu.js';
+import { Menu } from './ui/Menu.js';
+import { toast } from './ui/toast.js';
+import { loadInitialProject, saveCode, saveBackup, readBackup, isJsReviewed, markJsReviewed } from './project/project.js';
+import { shareUrl, readSharedCode, SHARE_PREFIX } from './project/share.js';
+import { buildDocument, download } from './project/export.js';
+import { TEMPLATES } from './examples/templates.js';
 import { TreeView } from './tree/TreeView.js';
 import { renderBreadcrumb } from './tree/breadcrumb.js';
 import { ConsolePanel } from './console/ConsolePanel.js';
@@ -27,7 +32,6 @@ import { registerShortcut, listShortcuts, formatShortcut, isMac, isTyping, SECON
 import { readPref, writePref } from './lib/storage.js';
 import { debounce } from './lib/debounce.js';
 import { h } from './lib/dom.js';
-import { STARTER } from './examples/starter.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -39,7 +43,9 @@ const layout = initSplitters($('#workspace'));
 initTheme($('#theme-button'));
 
 // ── Editors ─────────────────────────────────────────────────────────
-const editors = createEditors($('#editor-host'), { initial: STARTER, onChange: onEdit });
+// A shared link (#code=…), the code saved in this browser, or the first example
+const project = await loadInitialProject();
+const editors = createEditors($('#editor-host'), { initial: project.code, onChange: onEdit });
 // A click on a tab also moves the focus to the editor; the arrow keys stay on the tabs
 const editorTabs = createSegmented($('#editor-tabs'), { onChange: (id, { user }) => showEditor(id, { focus: user }) });
 
@@ -71,12 +77,22 @@ let executedJs = editors.getValue('js');
 let stallTimer = 0;
 const autoRun = debounce(() => run({ keepJs: true }), AUTORUN_DELAY);
 
-function run({ keepJs = false } = {}) {
+/**
+ * keepJs: run the HTML and CSS with the JavaScript that ran last time (auto-run).
+ * skipJs: run without JavaScript (shared links, or code that froze last time).
+ */
+function run({ keepJs = false, skipJs = false } = {}) {
   autoRun.cancel();
-  if (!keepJs) {
+  if (skipJs) {
+    executedJs = '';
+    setJsPending(editors.getValue('js').trim() !== '');
+  } else if (!keepJs) {
     executedJs = editors.getValue('js');
     setJsPending(false);
+    markJsReviewed(true); // you chose to run it
   }
+  // If this JavaScript freezes the tab, the next visit will know and will not run it again
+  writePref('running-js', executedJs.trim() !== '');
   resetHighlight();
   consolePanel.clear();
   changesPanel.reset();
@@ -91,8 +107,22 @@ function run({ keepJs = false } = {}) {
 }
 
 function onEdit(lang) {
+  saveSoon();
   if (lang === 'js') setJsPending(editors.getValue('js') !== executedJs);
   else if (autorun.checked) autoRun();
+}
+
+// ── Saving ──────────────────────────────────────────────────────────
+// The code is saved in localStorage a moment after you stop typing.
+const saveSoon = debounce(saveNow, 400);
+
+function saveNow() {
+  saveSoon.cancel();
+  saveCode(editors.getCode());
+  const label = $('#save-status');
+  label.classList.remove('is-visible');
+  void label.offsetWidth; // restart the fade animation
+  label.classList.add('is-visible');
 }
 
 function setJsPending(pending) {
@@ -112,6 +142,7 @@ function showStats() {
 
 preview.addEventListener(FROM_AGENT.SNAPSHOT, ({ detail }) => {
   clearTimeout(stallTimer);
+  writePref('running-js', false); // the code finished: it did not freeze the tab
   const next = buildModel(detail.root);
   if (!next) return;
   model = next;
@@ -337,7 +368,7 @@ details.addEventListener('select-node', ({ detail }) => {
 // usual DOM methods. The result comes back through the MutationObserver
 // like any other change: the tree updates and the history records it.
 const domEditor = new DomEditor(preview);
-const menu = new NodeMenu();
+const menu = new Menu();
 const undoButton = $('#tree-undo');
 const redoButton = $('#tree-redo');
 let pendingSelect = null; // a node just created: select it as soon as it reaches the tree
@@ -509,7 +540,10 @@ collapsible('details', $('#details-toggle'), 'details');
 
 // ── Keyboard shortcuts ──────────────────────────────────────────────
 registerShortcut('Mod+Enter', 'Run the code', () => run());
-registerShortcut('Mod+S', 'Run (instead of "Save page")', () => run());
+registerShortcut('Mod+S', 'Save and run', () => {
+  saveNow();
+  run();
+});
 LANGUAGES.forEach((lang, index) => {
   registerShortcut(`${SECONDARY}+${index + 1}`, `Edit ${lang.label}`, () => showEditor(lang.id, { focus: true }));
 });
@@ -552,5 +586,141 @@ $('#pending-js kbd').textContent = runKeys;
 $('#run-button').title = `Run HTML, CSS and JavaScript (${runKeys})`;
 inspectButton.title = `Inspect an element (${formatShortcut(`${SECONDARY}+I`)})`;
 
-// First run!
-run();
+// ── Project: examples, export and share ─────────────────────────────
+
+/** Puts some code in the editors and runs it. The toast can undo it. */
+function loadCode(code, { message, runJs = true } = {}) {
+  const previous = editors.getCode();
+  editors.setCode(code);
+  saveNow();
+  run({ skipJs: !runJs });
+  if (message) toast(message, { action: { label: 'Undo', run: () => loadCode(previous) } });
+}
+
+function welcomeShared({ backedUp }) {
+  toast('Opened shared code. Its JavaScript has not run yet: read it first, then press Run.', {
+    action: { label: 'Run', run: () => run() },
+    duration: 12000,
+  });
+  if (backedUp) {
+    toast('Your previous code was kept.', {
+      action: { label: 'Restore', run: () => loadCode(readBackup() ?? TEMPLATES[0]) },
+      duration: 12000,
+    });
+  }
+}
+
+$('#templates-button').addEventListener('click', (event) => {
+  menu.open(
+    Menu.below(event.currentTarget),
+    TEMPLATES.map((template) => ({
+      label: template.title,
+      description: template.description,
+      run: () => loadCode(template, { message: `Opened "${template.title}".` }),
+    })),
+    { title: 'Examples' },
+  );
+});
+
+$('#export-button').addEventListener('click', (event) => {
+  menu.open(
+    Menu.below(event.currentTarget),
+    [
+      {
+        label: 'Download your code',
+        description: 'A single index.html with your HTML, CSS and JavaScript.',
+        run: () => download('index.html', buildDocument(editors.getCode())),
+      },
+      {
+        label: 'Download the live DOM',
+        description: 'The page as it is right now (outerHTML): with what your code and your edits changed, but without your formatting.',
+        run: downloadLiveDom,
+      },
+    ],
+    { title: 'Export' },
+  );
+});
+
+/** Asks the agent for document.documentElement.outerHTML and saves it. */
+function downloadLiveDom() {
+  if (!modelIsCurrent) {
+    toast('The preview is not ready yet.');
+    return;
+  }
+  const timer = setTimeout(() => {
+    preview.removeEventListener(FROM_AGENT.HTML, onHtml);
+    toast('The preview did not answer. Is it stuck in a loop?');
+  }, 3000);
+  function onHtml({ detail }) {
+    clearTimeout(timer);
+    preview.removeEventListener(FROM_AGENT.HTML, onHtml);
+    download('live-dom.html', detail.html);
+  }
+  preview.addEventListener(FROM_AGENT.HTML, onHtml);
+  preview.send(TO_AGENT.REQUEST_HTML);
+}
+
+$('#share-button').addEventListener('click', async (event) => {
+  const at = Menu.below(event.currentTarget);
+  saveNow();
+  const url = await shareUrl(editors.getCode());
+  const field = h('input', { className: 'menu__input', type: 'text', readOnly: true, value: url, 'aria-label': 'Link to share' });
+  const copy = h('button', { className: 'button button--primary', type: 'button' }, 'Copy');
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      copy.textContent = 'Copied ✓';
+    } catch {
+      // Without clipboard permission: leave the text selected for Ctrl+C
+      field.select();
+      copy.textContent = isMac ? 'Press ⌘C' : 'Press Ctrl+C';
+    }
+  });
+  menu.show(
+    at,
+    h('h3', {}, 'Share your code'),
+    h('div', { className: 'menu__row' }, field, copy),
+    h(
+      'p',
+      {},
+      `Your code travels compressed inside the link, after the # (${url.length.toLocaleString('en')} characters). ` +
+        'That part of a URL never reaches any server: nothing is uploaded.',
+    ),
+    h('p', {}, 'Whoever opens it gets a copy; its JavaScript only runs when they press Run.'),
+    url.length > 8000 ? h('p', {}, '⚠️ This link is very long and some apps cut long links. If it fails, export the file instead.') : null,
+  );
+  field.focus();
+  field.select();
+});
+
+// A share link pasted into the address bar of this same tab
+window.addEventListener('hashchange', async () => {
+  if (!location.hash.startsWith(SHARE_PREFIX)) return;
+  try {
+    const code = await readSharedCode();
+    history.replaceState(null, '', location.pathname + location.search);
+    saveBackup(editors.getCode());
+    loadCode(code, { runJs: false });
+    markJsReviewed(false);
+    welcomeShared({ backedUp: true });
+  } catch (error) {
+    toast(`Could not open that link: ${error.message}`);
+  }
+});
+
+// ── First run ───────────────────────────────────────────────────────
+if (project.source === 'shared' || !isJsReviewed()) {
+  // A shared link, or one you opened earlier and never ran
+  run({ skipJs: true });
+  welcomeShared({ backedUp: Boolean(project.backedUp) });
+} else if (readPref('running-js', false)) {
+  // The last run never finished (the tab froze or was closed while running)
+  run({ skipJs: true });
+  toast('Last time your JavaScript did not finish (an infinite loop?), so it has not run now. Fix it, then press Run.', {
+    action: { label: 'Run anyway', run: () => run() },
+    duration: 12000,
+  });
+} else {
+  run();
+}
+if (project.error) toast(`Could not open the shared link: ${project.error}`);

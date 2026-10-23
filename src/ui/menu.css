@@ -1,9 +1,9 @@
-/* ── Node context menu (native popover) ──────────────────────── */
-.node-menu {
+/* ── Floating menu (native popover) ──────────────────────── */
+.menu {
   position: fixed;
   inset: auto;
   min-width: 220px;
-  max-width: min(320px, calc(100vw - 16px));
+  max-width: min(380px, calc(100vw - 16px));
   margin: 0;
   padding: 5px;
   border: 0;
@@ -24,19 +24,19 @@
     overlay var(--duration-fast) allow-discrete;
 }
 
-.node-menu:popover-open {
+.menu:popover-open {
   opacity: 1;
   scale: 1;
 }
 
 @starting-style {
-  .node-menu:popover-open {
+  .menu:popover-open {
     opacity: 0;
     scale: 0.97;
   }
 }
 
-.node-menu__title {
+.menu__title {
   padding: 4px 9px 6px;
   overflow: hidden;
   color: var(--text-2);
@@ -46,7 +46,7 @@
   white-space: nowrap;
 }
 
-.node-menu__item {
+.menu__item {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -62,14 +62,14 @@
   cursor: default;
 }
 
-.node-menu__item:hover,
-.node-menu__item:focus-visible {
+.menu__item:hover,
+.menu__item:focus-visible {
   outline: none;
   background: var(--accent);
   color: var(--on-accent);
 }
 
-.node-menu__item kbd {
+.menu__item kbd {
   height: auto;
   padding: 0;
   background: none;
@@ -77,36 +77,36 @@
   color: var(--text-3);
 }
 
-.node-menu__item:hover kbd,
-.node-menu__item:focus-visible kbd {
+.menu__item:hover kbd,
+.menu__item:focus-visible kbd {
   color: rgb(255 255 255 / 0.8);
 }
 
-.node-menu__item--danger {
+.menu__item--danger {
   color: var(--red);
 }
 
-.node-menu__item--danger:hover,
-.node-menu__item--danger:focus-visible {
+.menu__item--danger:hover,
+.menu__item--danger:focus-visible {
   background: var(--red);
 }
 
-.node-menu__separator {
+.menu__separator {
   height: 1px;
   margin: 4px 9px;
   background: var(--separator);
 }
 
-.node-menu__form {
+.menu__form {
   padding: 2px 4px 4px;
 }
 
-.node-menu__row {
+.menu__row {
   display: flex;
   gap: 6px;
 }
 
-.node-menu__input {
+.menu__input {
   flex: 1;
   min-width: 0;
   height: 30px;
@@ -118,7 +118,54 @@
   font-size: var(--text-sm);
 }
 
-.node-menu__input:focus-visible {
+.menu__input:focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: 0;
+}
+
+/* Items with a description (templates) */
+.menu__item--described {
+  align-items: flex-start;
+  height: auto;
+  padding: 6px 9px;
+}
+
+.menu__label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.menu__label small {
+  color: var(--text-2);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.menu__item:hover .menu__label small,
+.menu__item:focus-visible .menu__label small {
+  color: rgb(255 255 255 / 0.85);
+}
+
+/* Free content (the share panel) */
+.menu__content {
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 6px 8px 8px;
+}
+
+.menu__content h3 {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.menu__content p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
 }
