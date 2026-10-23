@@ -29,12 +29,22 @@ export const FROM_AGENT = Object.freeze({
   SNAPSHOT: 'dom:snapshot',
   /** Batch of console messages and errors. payload: { entries: ConsoleEntry[], dropped: number } */
   CONSOLE: 'console:entries',
+  /** Box model of the highlighted node, sent whenever it changes. payload: { id: number|null, box: Box|null, label: string } */
+  BOX: 'overlay:box',
+  /** Inspect mode: the pointer moved onto another node. payload: { id: number|null } */
+  HOVER: 'inspect:hover',
+  /** Inspect mode: the user clicked a node (inspect mode ends). payload: { id: number|null } */
+  PICK: 'inspect:pick',
 });
 
 /** app → iframe */
 export const TO_AGENT = Object.freeze({
   /** Asks for a fresh full tree. payload: {} */
   REQUEST_SNAPSHOT: 'dom:request-snapshot',
+  /** Starts following a node's box (null stops). payload: { id: number|null } */
+  HIGHLIGHT: 'overlay:highlight',
+  /** Turns inspect mode on or off. payload: { enabled: boolean } */
+  SET_INSPECT: 'inspect:set',
 });
 
 /** Shared limits: they protect the app from huge or malicious documents. */
@@ -77,6 +87,21 @@ export const LIMITS = Object.freeze({
  * @property {string} [stack]
  */
 
+/**
+ * Box model of a node, in CSS pixels relative to the preview's viewport.
+ * x, y, width and height describe the BORDER box (what getBoundingClientRect
+ * returns); every side list is [top, right, bottom, left].
+ * @typedef {[number, number, number, number]} Sides
+ * @typedef {Object} Box
+ * @property {number} x
+ * @property {number} y
+ * @property {number} width
+ * @property {number} height
+ * @property {Sides} margin
+ * @property {Sides} border
+ * @property {Sides} padding
+ */
+
 /** Builds a message in the protocol format. */
 export function createMessage(runId, type, payload = {}) {
   return { channel: CHANNEL, version: VERSION, runId, type, payload };
@@ -111,9 +136,45 @@ export function readPayload(type, payload) {
       return isObject(payload.root) ? { root: payload.root, truncated: payload.truncated === true } : null;
     case FROM_AGENT.CONSOLE:
       return readConsole(payload);
+    case FROM_AGENT.BOX:
+      return readBox(payload);
+    case FROM_AGENT.HOVER:
+    case FROM_AGENT.PICK:
+      return isIdOrNull(payload.id) ? { id: payload.id } : null;
     default:
       return null;
   }
+}
+
+const isIdOrNull = (value) => value === null || (Number.isInteger(value) && value > 0);
+const isCoordinate = (value) => Number.isFinite(value) && Math.abs(value) < 1e6;
+const isSides = (value) => Array.isArray(value) && value.length === 4 && value.every(isCoordinate);
+
+function readBox(payload) {
+  const { id, box, label } = payload;
+  if (!isIdOrNull(id)) return null;
+  if (box === null) return { id, box: null, label: '' };
+  const valid =
+    isObject(box) &&
+    ['x', 'y', 'width', 'height'].every((key) => isCoordinate(box[key])) &&
+    isSides(box.margin) &&
+    isSides(box.border) &&
+    isSides(box.padding);
+  if (!valid) return null;
+  // Copy only the expected fields: anything else the iframe sent is dropped
+  return {
+    id,
+    box: {
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+      margin: [...box.margin],
+      border: [...box.border],
+      padding: [...box.padding],
+    },
+    label: typeof label === 'string' ? label.slice(0, 200) : '',
+  };
 }
 
 const LEVELS = new Set(['log', 'info', 'warn', 'error', 'debug']);

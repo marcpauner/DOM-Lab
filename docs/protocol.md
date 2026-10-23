@@ -45,12 +45,17 @@ Every message, in both directions, has the same shape:
 | `agent:ready` | `{}` | The agent has loaded (before your code). |
 | `dom:snapshot` | `{ root: SerializedNode, truncated }` | After `DOMContentLoaded`, after `load` and whenever the app asks. |
 | `console:entries` | `{ entries: ConsoleEntry[], dropped }` | Batches of `console.*` calls, errors and sandbox warnings. |
+| `overlay:box` | `{ id, box: Box \| null, label }` | The followed node's box model: right away, then whenever it changes. |
+| `inspect:hover` | `{ id \| null }` | Inspect mode: the pointer moved onto another node. Always sent *before* its box. |
+| `inspect:pick` | `{ id \| null }` | Inspect mode: the user clicked a node. Inspect mode ends. |
 
 ### App → agent (`TO_AGENT`)
 
 | Type | Payload | Effect |
 | --- | --- | --- |
 | `dom:request-snapshot` | `{}` | The agent walks the DOM again and sends `dom:snapshot`. |
+| `overlay:highlight` | `{ id \| null }` | The agent starts following that node's box (`null` stops). Ignored while inspecting. |
+| `inspect:set` | `{ enabled }` | Turns inspect mode on or off. |
 
 ### Data types
 
@@ -76,7 +81,25 @@ Every message, in both directions, has the same shape:
   location: { line: 57, column: 3 }, // document line; the app maps it to script.js:12:3
   stack: '…'
 }
+
+// Box: CSS pixels relative to the preview's viewport
+{
+  x: 40, y: 131, width: 478, height: 268,   // border box (getBoundingClientRect)
+  margin:  [0, 0, 0, 0],                     // [top, right, bottom, left]
+  border:  [0, 0, 0, 0],
+  padding: [32, 40, 32, 40]
+}
 ```
+
+## Highlighting and inspect mode
+
+The overlay is **drawn by the app**, on top of the iframe, never inside it: adding elements to the preview would change the user's DOM (they would show up in the tree and in `querySelectorAll`). The agent only measures:
+
+1. `overlay:highlight` arrives → the agent measures the node (`getBoundingClientRect` + `getComputedStyle`; a `Range` for text nodes) and sends `overlay:box` right away.
+2. Then it measures again on every `requestAnimationFrame` and only sends a new box when it changes, so scrolling, animations and layout changes are followed.
+3. Inspect mode adds capture-phase listeners on `window`, registered before the user's code: hovering sends `inspect:hover`, and every event a click is made of (`pointerdown`, `mousedown`, `click`…) is cancelled, so the user's handlers never see it. The crosshair cursor comes from a constructed stylesheet (`document.adoptedStyleSheets`), which adds no node to the document either.
+
+The app ignores boxes that arrive late for a node it no longer highlights, and since ids change on every run, it sends no highlight until the new tree has arrived.
 
 ## Planned messages for the next phases
 
@@ -84,15 +107,10 @@ They will use the same envelope; names may change when they are implemented.
 
 | Phase | Direction | Type | Payload |
 | --- | --- | --- | --- |
-| 2 | app → agent | `overlay:highlight` | `{ id \| null }` — track a node's box |
-| 2 | app → agent | `inspect:set` | `{ enabled }` — turns "inspect" mode on or off |
-| 2 | agent → app | `overlay:box` | `{ id, box, label }` — the tracked node's box model |
-| 2 | agent → app | `inspect:hover` | `{ id \| null }` — the pointer is over a node in the preview |
-| 2 | agent → app | `inspect:pick` | `{ id }` — click while inspecting |
 | 3 | app → agent | `node:request-details` | `{ id }` |
 | 3 | agent → app | `node:details` | `{ id, computedStyle, box, listeners? }` |
 | 4 | agent → app | `dom:mutations` | `{ records: Patch[] }` — incremental changes from a `MutationObserver` |
 | 5 | app → agent | `attr:set`, `attr:remove`, `text:set`, `node:remove`, `node:move`, `node:insert` | `{ requestId, id, … }` |
 | 5 | agent → app | `command:result` | `{ requestId, ok, error? }` |
 
-From phase 2 on, the agent needs the reverse lookup (id → node). It uses a `Map<id, WeakRef<Node>>`, so it still does not stop the garbage collector from freeing removed nodes.
+Commands that name a node need the reverse lookup (id → node). The agent keeps a `Map<id, WeakRef<Node>>` plus a `FinalizationRegistry` that removes the entry once the node is collected, so it still never keeps removed nodes alive.
