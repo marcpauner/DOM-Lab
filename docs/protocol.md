@@ -51,6 +51,7 @@ Every message, in both directions, has the same shape:
 | `node:details` | `{ id, details: NodeDetails \| null }` | Answer to `node:request-details` (`null`: the node no longer exists). |
 | `dom:mutations` | `{ patches: Patch[], records: ChangeRecord[], dropped, overflow }` | Live changes, in batches every 50 ms at most. |
 | `dom:edit-result` | `{ requestId, ok, error?, id?, undo, redo }` | Answer to `dom:edit`. |
+| `dom:html` | `{ html }` | The live DOM as HTML: the doctype plus `document.documentElement.outerHTML`. |
 
 ### App → agent (`TO_AGENT`)
 
@@ -61,6 +62,7 @@ Every message, in both directions, has the same shape:
 | `inspect:set` | `{ enabled }` | Turns inspect mode on or off. |
 | `node:request-details` | `{ id }` | Asks for everything the details panel shows about a node. |
 | `dom:edit` | `{ requestId, edit: Edit }` | Changes the live DOM (see [Editing](#editing)). |
+| `dom:request-html` | `{}` | Asks for the live DOM as HTML, for the "Download the live DOM" export. |
 
 ### Data types
 

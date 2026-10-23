@@ -918,6 +918,13 @@ window.addEventListener('message', (event) => {
     case TO_AGENT.EDIT:
       if (Number.isInteger(payload?.requestId)) runEdit(payload.requestId, payload.edit);
       break;
+    case TO_AGENT.REQUEST_HTML: {
+      // outerHTML turns the live DOM back into HTML text. It does not include
+      // the doctype, which is a separate node: document.doctype
+      const doctype = document.doctype ? `<!DOCTYPE ${document.doctype.name}>\n` : '';
+      send(FROM_AGENT.HTML, { html: truncate(doctype + document.documentElement.outerHTML, LIMITS.MAX_HTML) });
+      break;
+    }
     case TO_AGENT.REQUEST_DETAILS: {
       if (!Number.isInteger(payload?.id)) break;
       let details = null;

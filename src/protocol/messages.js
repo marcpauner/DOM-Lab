@@ -45,6 +45,8 @@ export const FROM_AGENT = Object.freeze({
   MUTATIONS: 'dom:mutations',
   /** Answer to dom:edit. payload: { requestId, ok, error?, id?, undo, redo } */
   EDIT_RESULT: 'dom:edit-result',
+  /** The live DOM serialized as HTML (doctype + outerHTML). payload: { html: string } */
+  HTML: 'dom:html',
 });
 
 /** app → iframe */
@@ -59,6 +61,8 @@ export const TO_AGENT = Object.freeze({
   REQUEST_DETAILS: 'node:request-details',
   /** Changes the live DOM from the app's interface. payload: { requestId: number, edit: Edit } */
   EDIT: 'dom:edit',
+  /** Asks for the live DOM as HTML (answered with dom:html). payload: {} */
+  REQUEST_HTML: 'dom:request-html',
 });
 
 /** Shared limits: they protect the app from huge or malicious documents. */
@@ -73,6 +77,7 @@ export const LIMITS = Object.freeze({
   MAX_HANDLER: 600,
   MAX_MUTATIONS: 5_000, // MutationRecords in one batch; more than that → a full snapshot instead
   MAX_HISTORY: 300, // ChangeRecords sent per batch
+  MAX_HTML: 2_000_000, // characters of live HTML for the export
 });
 
 /**
@@ -260,6 +265,8 @@ export function readPayload(type, payload) {
       return readMutations(payload);
     case FROM_AGENT.EDIT_RESULT:
       return readEditResult(payload);
+    case FROM_AGENT.HTML:
+      return typeof payload.html === 'string' ? { html: payload.html.slice(0, LIMITS.MAX_HTML) } : null;
     default:
       return null;
   }
