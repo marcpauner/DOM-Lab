@@ -10,7 +10,7 @@ export const FILE_NAMES = { html: 'index.html', css: 'style.css', js: 'script.js
 // A "</script>" inside your JS would close the tag too early: it is the HTML
 // parser, not JavaScript, that decides where a <script> ends.
 // "<\/script>" means the same thing in JS (and "<\/style>" in CSS).
-const escapeEndTag = (code, tag) => code.replace(new RegExp(`</(${tag})`, 'gi'), '<\\/$1');
+export const escapeEndTag = (code, tag) => code.replace(new RegExp(`</(${tag})`, 'gi'), '<\\/$1');
 
 const countNewlines = (text) => text.split('\n').length - 1;
 
