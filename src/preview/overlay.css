@@ -1,0 +1,139 @@
+/* ── Box model overlay (on top of the preview iframe) ────────── */
+.overlay {
+  --box-margin: rgb(255 159 10 / 0.32);
+  --box-border: rgb(255 214 10 / 0.5);
+  --box-padding: rgb(52 199 89 / 0.32);
+  --box-content: rgb(0 122 255 / 0.3);
+
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--duration-fast) ease;
+}
+
+.overlay.is-visible {
+  opacity: 1;
+}
+
+.overlay__margin,
+.overlay__border,
+.overlay__padding,
+.overlay__content {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.overlay__margin {
+  top: 0;
+  left: 0;
+  border: 0 solid var(--box-margin);
+}
+
+/* Each inner layer fills the inner area of the previous one */
+.overlay__border,
+.overlay__padding,
+.overlay__content {
+  inset: 0;
+}
+
+.overlay__border {
+  border: 0 solid var(--box-border);
+}
+
+.overlay__padding {
+  border: 0 solid var(--box-padding);
+}
+
+.overlay__content {
+  background: var(--box-content);
+}
+
+/* Label with the node and its size */
+.overlay__label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: calc(100% - 12px);
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: rgb(28 28 30 / 0.88);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.25);
+  color: #fff;
+  font: 600 11px/1.3 var(--font-mono);
+  white-space: nowrap;
+}
+
+.overlay__name {
+  min-width: 0;
+  overflow: hidden;
+  color: #ff7ab2;
+  text-overflow: ellipsis;
+}
+
+.overlay__size {
+  flex: none;
+  color: rgb(255 255 255 / 0.7);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Inspect mode ────────────────────────────────────────────── */
+.preview-host::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  box-shadow: inset 0 0 0 2px var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration) var(--ease-out);
+}
+
+.panel--preview.is-inspecting .preview-host::after {
+  opacity: 1;
+}
+
+.inspect-hint {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-float);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  translate: -50% 0;
+  animation: hint-in var(--duration) var(--ease-out);
+}
+
+@keyframes hint-in {
+  from {
+    opacity: 0;
+    translate: -50% -6px;
+  }
+}
+
+/* Inspect button, "pressed" while the mode is on */
+.icon-button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
