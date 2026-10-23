@@ -1,0 +1,195 @@
+.console-host {
+  padding-top: var(--panel-header-h);
+  overscroll-behavior: contain;
+}
+
+.console {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.console__empty {
+  padding: var(--space-4);
+  color: var(--text-3);
+}
+
+.console__empty code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
+
+/* ── One entry ──────────────────────────────────────────────── */
+.log {
+  --log-color: var(--text-3);
+
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 6px 12px 6px 14px;
+  border-bottom: 1px solid var(--separator);
+  animation: log-in var(--duration) var(--ease-out);
+}
+
+@keyframes log-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+
+.log--info {
+  --log-color: var(--blue);
+}
+
+.log--warn {
+  --log-color: var(--orange);
+
+  background: color-mix(in srgb, var(--orange) 7%, transparent);
+}
+
+.log--error {
+  --log-color: var(--red);
+
+  background: color-mix(in srgb, var(--red) 7%, transparent);
+}
+
+.log--debug {
+  --log-color: var(--purple);
+}
+
+.log--system .log__message {
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-style: italic;
+}
+
+.log__icon {
+  width: 8px;
+  height: 8px;
+  margin: 5px 0 0 3px;
+  border-radius: 50%;
+  background: var(--log-color);
+}
+
+.log--log .log__icon {
+  scale: 0.6;
+}
+
+.log__message {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.log--error .log__message {
+  color: light-dark(#c0271d, #ff8a80);
+}
+
+.log__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  line-height: 18px;
+}
+
+.log__time {
+  font-variant-numeric: tabular-nums;
+}
+
+.log__repeat {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--log-color);
+  color: #fff;
+  font-weight: 700;
+  text-align: center;
+}
+
+.log--log .log__repeat {
+  background: var(--fill-active);
+  color: var(--text);
+}
+
+.log__location {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--separator);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.log__location:hover {
+  color: var(--accent);
+  text-decoration-color: currentColor;
+}
+
+.log__stack {
+  margin-top: 4px;
+  color: var(--text-2);
+}
+
+.log__stack summary {
+  width: fit-content;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.log__stack pre {
+  margin: 4px 0 0;
+  font: inherit;
+  white-space: pre-wrap;
+}
+
+/* ── Values by type ──────────────────────────────────────────── */
+.val--number,
+.val--bigint {
+  color: var(--syn-number);
+}
+
+.val--boolean,
+.val--null,
+.val--undefined,
+.val--symbol {
+  color: var(--syn-keyword);
+}
+
+.val--function {
+  color: var(--syn-function);
+  font-style: italic;
+}
+
+.val--object,
+.val--array {
+  color: var(--text);
+}
+
+.val--error {
+  color: inherit;
+}
+
+.val--node {
+  padding: 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--fill);
+  color: var(--syn-tag);
+  font: inherit;
+  cursor: pointer;
+}
+
+.val--node:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
