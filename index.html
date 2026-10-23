@@ -136,14 +136,20 @@
 
           <div class="splitter splitter--y" data-splitter="console" role="separator" aria-orientation="horizontal" aria-label="Console height" tabindex="0"></div>
 
-          <!-- Console -->
-          <section class="panel panel--console" aria-label="Console">
+          <!-- Console and history of DOM changes -->
+          <section class="panel panel--console" aria-label="Console and changes">
             <header class="panel__header panel__header--overlay">
-              <h2 class="panel__title">Console</h2>
+              <div id="log-tabs" class="segmented segmented--small" role="tablist" aria-label="Log">
+                <span class="segmented__thumb" aria-hidden="true"></span>
+                <button class="segmented__item" type="button" role="tab" data-value="console">Console</button>
+                <button class="segmented__item" type="button" role="tab" data-value="changes">
+                  Changes<span id="changes-count" class="segmented__count" hidden></span>
+                </button>
+              </div>
               <span id="console-errors" class="badge badge--error" hidden></span>
               <span id="console-warnings" class="badge badge--warn" hidden></span>
               <div class="panel__actions">
-                <button id="console-clear" class="icon-button icon-button--small" type="button" aria-label="Clear the console" title="Clear the console">
+                <button id="console-clear" class="icon-button icon-button--small" type="button" aria-label="Clear" title="Clear">
                   <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M2.5 4.5h11M6.5 4.5V3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M4 4.5l.6 8.6a1 1 0 0 0 1 .9h4.8a1 1 0 0 0 1-.9l.6-8.6" />
                   </svg>
@@ -156,6 +162,7 @@
               </div>
             </header>
             <div id="console-host" class="panel__body console-host"></div>
+            <div id="changes-host" class="panel__body changes-host" hidden></div>
           </section>
         </div>
 

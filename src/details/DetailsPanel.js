@@ -71,6 +71,7 @@ export class DetailsPanel extends EventTarget {
   #filter;
   #showAll;
   #styleList;
+  #stylesView; // toolbar + list: stay in the DOM so the filter keeps its focus during live updates
 
   constructor(host, { tabs, eventsBadge }) {
     super();
@@ -90,6 +91,16 @@ export class DetailsPanel extends EventTarget {
     this.#styleList = h('div');
     this.#filter.addEventListener('input', () => this.#renderStyleList());
     this.#showAll.addEventListener('change', () => this.#renderStyleList());
+    this.#stylesView = [
+      h(
+        'div',
+        { className: 'details__toolbar' },
+        this.#filter,
+        h('label', { className: 'switch-label', title: 'Show every computed property' }, this.#showAll, h('span', {}, 'All')),
+      ),
+      note('Computed values: the final result after the cascade, inheritance and unit conversion (em → px).'),
+      this.#styleList,
+    ];
 
     host.append(this.#empty, this.#identity, ...Object.values(this.#panels));
     // Anything with data-node-id (ancestors with listeners) can be selected with a click
@@ -149,7 +160,9 @@ export class DetailsPanel extends EventTarget {
     }
     this.#panels.node.replaceChildren(...this.#nodeTab(details));
     this.#panels.box.replaceChildren(...this.#boxTab(details));
-    this.#panels.styles.replaceChildren(...this.#stylesTab(details));
+    const styles = this.#stylesTab(details);
+    // Moving an element (even to the same place) would blur the filter: only do it if needed
+    if (styles !== this.#stylesView || this.#panels.styles.firstChild !== styles[0]) this.#panels.styles.replaceChildren(...styles);
     this.#panels.events.replaceChildren(...this.#eventsTab(details));
   }
 
@@ -252,16 +265,7 @@ export class DetailsPanel extends EventTarget {
     }
     if (details.styles.length === 0) return [note('No computed styles: the element is not in the document.')];
     this.#renderStyleList();
-    return [
-      h(
-        'div',
-        { className: 'details__toolbar' },
-        this.#filter,
-        h('label', { className: 'switch-label', title: 'Show every computed property' }, this.#showAll, h('span', {}, 'All')),
-      ),
-      note('Computed values: the final result after the cascade, inheritance and unit conversion (em → px).'),
-      this.#styleList,
-    ];
+    return this.#stylesView;
   }
 
   #renderStyleList() {

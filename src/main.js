@@ -11,10 +11,11 @@ import { createEditors, LANGUAGES } from './editor/editors.js';
 import { PreviewBridge } from './preview/PreviewBridge.js';
 import { Overlay } from './preview/Overlay.js';
 import { FROM_AGENT, TO_AGENT, LIMITS } from './protocol/messages.js';
-import { buildModel } from './tree/model.js';
+import { buildModel, applyPatches } from './tree/model.js';
 import { TreeView } from './tree/TreeView.js';
 import { renderBreadcrumb } from './tree/breadcrumb.js';
 import { ConsolePanel } from './console/ConsolePanel.js';
+import { ChangesPanel } from './changes/ChangesPanel.js';
 import { DetailsPanel } from './details/DetailsPanel.js';
 import { initTheme } from './ui/theme.js';
 import { initSplitters } from './ui/splitters.js';
@@ -54,7 +55,9 @@ const preview = new PreviewBridge($('#preview-host'));
 const consolePanel = new ConsolePanel($('#console-host'), {
   locate: (line, column) => preview.locate(line, column),
 });
+const changesPanel = new ChangesPanel($('#changes-host'));
 const tree = new TreeView($('#tree-host'));
+let model = null; // the current tree model: replaced by each snapshot, patched by live changes
 const status = $('#preview-status');
 const autorun = $('#autorun');
 
@@ -73,6 +76,7 @@ function run({ keepJs = false } = {}) {
   }
   resetHighlight();
   consolePanel.clear();
+  changesPanel.reset();
   setStatus('running', 'Running…');
   clearTimeout(stallTimer);
   stallTimer = setTimeout(() => {
@@ -97,22 +101,50 @@ function setStatus(state, text) {
   status.textContent = text;
 }
 
+function showStats() {
+  $('#tree-count').textContent = `${model.stats.total.toLocaleString('en')} nodes`;
+  $('#ws-count').textContent = `(${model.stats.whitespace})`;
+}
+
 preview.addEventListener(FROM_AGENT.SNAPSHOT, ({ detail }) => {
   clearTimeout(stallTimer);
-  const model = buildModel(detail.root);
-  if (!model) return;
+  const next = buildModel(detail.root);
+  if (!next) return;
+  model = next;
   modelIsCurrent = true;
   tree.setModel(model);
   if (pendingPick !== null) pick(pendingPick);
-  $('#tree-count').textContent = `${model.stats.total.toLocaleString('en')} nodes`;
-  $('#ws-count').textContent = `(${model.stats.whitespace})`;
+  showStats();
   if (detail.truncated) {
     consolePanel.system(`Huge document: the tree only shows the first ${LIMITS.MAX_NODES.toLocaleString('en')} nodes.`, 'warn');
   }
-  setStatus('ready', 'Ready');
+  setStatus('ready', 'Live');
 });
 
 preview.addEventListener(FROM_AGENT.CONSOLE, ({ detail }) => consolePanel.add(detail.entries, detail.dropped));
+
+// Live changes: the history gets the records, the tree gets the patches
+preview.addEventListener(FROM_AGENT.MUTATIONS, ({ detail }) => {
+  if (detail.overflow) {
+    changesPanel.system(`${detail.overflow.toLocaleString('en')} changes at once: the tree is read again from scratch.`);
+  }
+  changesPanel.add(detail.records, detail.dropped);
+  if (!model || !modelIsCurrent || detail.patches.length === 0) return;
+
+  const summary = applyPatches(model, detail.patches);
+  tree.applyChanges(summary);
+  showStats();
+  // The agent mentioned a node we do not have: start over with a full tree
+  if (summary.resync) preview.send(TO_AGENT.REQUEST_SNAPSHOT);
+
+  // The selected node may have changed too: refresh its breadcrumbs and details
+  const selected = tree.selectedNode;
+  if (selected) {
+    renderBreadcrumb(breadcrumb, selected);
+    details.show(selected);
+    requestDetails(selected, { restart: false });
+  }
+});
 
 preview.addEventListener('navigated', () => {
   setStatus('stalled', 'Left your document');
@@ -228,8 +260,10 @@ autorun.addEventListener('change', () => writePref('autorun', autorun.checked));
 const whitespace = $('#ws-toggle');
 whitespace.checked = readPref('hide-whitespace', true);
 tree.setHideWhitespace(whitespace.checked);
+changesPanel.hideWhitespace = whitespace.checked;
 whitespace.addEventListener('change', () => {
   tree.setHideWhitespace(whitespace.checked);
+  changesPanel.hideWhitespace = whitespace.checked;
   writePref('hide-whitespace', whitespace.checked);
 });
 
@@ -259,11 +293,25 @@ breadcrumb.addEventListener('click', (event) => {
 const details = new DetailsPanel($('#details-host'), { tabs: $('#details-tabs'), eventsBadge: $('#events-count') });
 let detailsTimer = 0;
 
+/**
+ * Asks for a node's details a moment later. A new selection restarts the wait
+ * (moving fast with the arrow keys sends one request, not one per row); live
+ * changes do not, so an animation cannot keep postponing the refresh forever.
+ */
+function requestDetails(node, { restart = true } = {}) {
+  if (!restart && detailsTimer) return;
+  clearTimeout(detailsTimer);
+  detailsTimer = 0;
+  if (!node || !modelIsCurrent) return;
+  detailsTimer = setTimeout(() => {
+    detailsTimer = 0;
+    preview.send(TO_AGENT.REQUEST_DETAILS, { id: node.id });
+  }, 80);
+}
+
 tree.addEventListener('select', ({ detail: node }) => {
   details.show(node);
-  clearTimeout(detailsTimer);
-  // Moving fast with the arrow keys sends one request, not one per row
-  if (node && modelIsCurrent) detailsTimer = setTimeout(() => preview.send(TO_AGENT.REQUEST_DETAILS, { id: node.id }), 80);
+  requestDetails(node);
 });
 
 preview.addEventListener(FROM_AGENT.DETAILS, ({ detail }) => {
@@ -310,7 +358,34 @@ consolePanel.addEventListener('goto', ({ detail }) => {
   editors.goTo(detail.file, detail.line, detail.column);
 });
 
-$('#console-clear').addEventListener('click', () => consolePanel.clear());
+// ── Changes (history of DOM mutations) ──────────────────────────────
+// The console panel has two tabs: Console and Changes
+const logTabs = createSegmented($('#log-tabs'), { onChange: showLog });
+
+function showLog(tab) {
+  $('#console-host').hidden = tab !== 'console';
+  $('#changes-host').hidden = tab !== 'changes';
+  logTabs.select(tab);
+  writePref('log-tab', tab);
+}
+showLog(readPref('log-tab', 'console') === 'changes' ? 'changes' : 'console');
+
+changesPanel.addEventListener('count', ({ detail }) => {
+  const badge = $('#changes-count');
+  badge.hidden = detail.count === 0;
+  badge.textContent = detail.count > 999 ? '999+' : String(detail.count);
+});
+
+changesPanel.addEventListener('select-node', ({ detail }) => {
+  if (tree.select(detail.id, { reveal: true })) tree.focus();
+});
+
+/** The clear button (and its shortcut) clears whichever tab is showing. */
+function clearLog() {
+  if (logTabs.value === 'changes') changesPanel.clear();
+  else consolePanel.clear();
+}
+$('#console-clear').addEventListener('click', clearLog);
 
 // ── Collapsible panels ──────────────────────────────────────────────
 /** Wires a collapse button to a bottom panel. Returns the toggle function. */
@@ -335,7 +410,7 @@ LANGUAGES.forEach((lang, index) => {
   registerShortcut(`${SECONDARY}+${index + 1}`, `Edit ${lang.label}`, () => showEditor(lang.id, { focus: true }));
 });
 registerShortcut(`${SECONDARY}+W`, 'Show or hide whitespace nodes', () => whitespace.click());
-registerShortcut(`${SECONDARY}+L`, 'Clear the console', () => consolePanel.clear());
+registerShortcut(`${SECONDARY}+L`, 'Clear the console (or the changes)', clearLog);
 registerShortcut(`${SECONDARY}+J`, 'Show or hide the console', toggleConsole);
 registerShortcut(`${SECONDARY}+I`, 'Inspect an element in the preview', () => setInspecting(!inspecting));
 registerShortcut('Escape', 'Cancel inspect mode', () => setInspecting(false), { when: () => inspecting });
