@@ -66,9 +66,10 @@
 
 /* ── Workspace: resizable columns ────────────────────────────── */
 .workspace {
-  --editor-size: 33%;
-  --tree-size: 27%;
+  --editor-size: 30%;
+  --tree-size: 30%;
   --console-size: 30%;
+  --details-size: 45%;
 
   display: grid;
   grid-template-columns:
@@ -76,16 +77,25 @@
     var(--gap)
     minmax(280px, 1fr)
     var(--gap)
-    minmax(260px, var(--tree-size));
+    minmax(300px, var(--tree-size));
   min-height: 0;
   padding: var(--gap);
 }
 
+/* Two panels on top of each other; the bottom one is resizable and collapsible */
 .stack {
   display: grid;
-  grid-template-rows: minmax(120px, 1fr) var(--gap) minmax(var(--panel-header-h), var(--console-size));
+  grid-template-rows: minmax(120px, 1fr) var(--gap) minmax(var(--panel-header-h), var(--bottom-size));
   min-width: 0;
   min-height: 0;
+}
+
+.stack--preview {
+  --bottom-size: var(--console-size);
+}
+
+.stack--inspector {
+  --bottom-size: var(--details-size);
 }
 
 /* ── Panels ──────────────────────────────────────────────────── */
@@ -350,6 +360,10 @@
   }
 
   .panel--tree {
+    height: 70dvh;
+  }
+
+  .panel--details {
     height: 70dvh;
   }
 

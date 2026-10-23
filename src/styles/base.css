@@ -263,6 +263,25 @@ svg {
   color: var(--text);
 }
 
+.segmented--small .segmented__item {
+  height: 24px;
+  padding: 0 10px;
+  font-size: var(--text-xs);
+}
+
+.segmented__count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .pending-dot {
   width: 6px;
   height: 6px;

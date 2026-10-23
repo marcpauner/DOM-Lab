@@ -2,16 +2,21 @@ import { readPref, writePref } from '../lib/storage.js';
 
 /*
  * Resizable panels. Each splitter updates a CSS variable on the workspace
- * (in %), and the grid in layout.css does the rest.
+ * (--editor-size, --tree-size, --console-size, --details-size, in %), and
+ * the grids in layout.css do the rest.
+ *
+ * "editor" and "tree" are columns; "console" and "details" are the bottom
+ * panels of a vertical stack and can be collapsed down to their header.
  */
 
-const DEFAULTS = { editor: 33, tree: 27, console: 30 };
-const LIMITS = { editor: [15, 60], tree: [15, 50], console: [6, 85] };
-const COLLAPSED_CONSOLE = 0; // the row's minmax() keeps the header visible
+const DEFAULTS = { editor: 30, tree: 30, console: 30, details: 45 };
+const LIMITS = { editor: [15, 60], tree: [15, 50], console: [6, 85], details: [6, 85] };
+const VERTICAL = new Set(['console', 'details']);
+const COLLAPSED = 0; // the row's minmax() keeps the header visible
 
-export function initSplitters(workspace, stack) {
+export function initSplitters(workspace) {
   const sizes = { ...DEFAULTS, ...readPref('layout', {}) };
-  let consoleBeforeCollapse = sizes.console || DEFAULTS.console;
+  const beforeCollapse = {};
 
   const clamp = (key, value) => {
     const [min, max] = LIMITS[key];
@@ -23,18 +28,17 @@ export function initSplitters(workspace, stack) {
   };
 
   const apply = () => {
-    workspace.style.setProperty('--editor-size', `${sizes.editor}%`);
-    workspace.style.setProperty('--tree-size', `${sizes.tree}%`);
-    workspace.style.setProperty('--console-size', `${sizes.console}%`);
+    for (const key of Object.keys(DEFAULTS)) workspace.style.setProperty(`--${key}-size`, `${sizes[key]}%`);
     for (const handle of workspace.querySelectorAll('[data-splitter]')) {
       handle.setAttribute('aria-valuenow', String(Math.round(sizes[handle.dataset.splitter])));
     }
   };
 
   /** Size (%) the panel would have if the splitter were at the pointer. */
-  const measure = (key, event) => {
-    if (key === 'console') {
-      const box = stack.getBoundingClientRect();
+  const measure = (key, handle, event) => {
+    if (VERTICAL.has(key)) {
+      // The bottom panel of the stack that contains this splitter
+      const box = handle.parentElement.getBoundingClientRect();
       return ((box.bottom - event.clientY) / box.height) * 100;
     }
     const box = workspace.getBoundingClientRect();
@@ -44,13 +48,13 @@ export function initSplitters(workspace, stack) {
   };
 
   const set = (key, value) => {
-    sizes[key] = key === 'console' && value <= LIMITS.console[0] ? COLLAPSED_CONSOLE : clamp(key, value);
+    sizes[key] = VERTICAL.has(key) && value <= LIMITS[key][0] ? COLLAPSED : clamp(key, value);
     apply();
   };
 
   for (const handle of workspace.querySelectorAll('[data-splitter]')) {
     const key = handle.dataset.splitter;
-    const axis = key === 'console' ? 'y' : 'x';
+    const axis = VERTICAL.has(key) ? 'y' : 'x';
     handle.setAttribute('aria-valuemin', String(LIMITS[key][0]));
     handle.setAttribute('aria-valuemax', String(LIMITS[key][1]));
 
@@ -63,7 +67,7 @@ export function initSplitters(workspace, stack) {
       handle.classList.add('is-dragging');
       document.documentElement.classList.add('is-resizing', `is-resizing-${axis}`);
 
-      const onMove = (moveEvent) => set(key, measure(key, moveEvent));
+      const onMove = (moveEvent) => set(key, measure(key, handle, moveEvent));
       const onEnd = () => {
         handle.classList.remove('is-dragging');
         document.documentElement.classList.remove('is-resizing', `is-resizing-${axis}`);
@@ -95,19 +99,19 @@ export function initSplitters(workspace, stack) {
   apply();
 
   return {
-    get consoleCollapsed() {
-      return sizes.console === COLLAPSED_CONSOLE;
-    },
-    toggleConsole() {
-      if (sizes.console === COLLAPSED_CONSOLE) {
-        sizes.console = consoleBeforeCollapse;
+    isCollapsed: (key) => sizes[key] === COLLAPSED,
+
+    /** Collapses a bottom panel down to its header, or restores it. Returns whether it is now collapsed. */
+    toggle(key) {
+      if (sizes[key] === COLLAPSED) {
+        sizes[key] = beforeCollapse[key] || DEFAULTS[key];
       } else {
-        consoleBeforeCollapse = sizes.console;
-        sizes.console = COLLAPSED_CONSOLE;
+        beforeCollapse[key] = sizes[key];
+        sizes[key] = COLLAPSED;
       }
       apply();
       writePref('layout', sizes);
-      return sizes.console === COLLAPSED_CONSOLE;
+      return sizes[key] === COLLAPSED;
     },
   };
 }
