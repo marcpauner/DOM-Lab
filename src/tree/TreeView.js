@@ -38,6 +38,7 @@ export class TreeView extends EventTarget {
   #expanded = new Map(); // path → expanded/collapsed (what the user chose)
   #selectedId = null;
   #selectedPath = null;
+  #selectedNode = null; // kept even if the node is removed: its .parent says where the selection goes
   #hoveredId = null; // node under the pointer in the preview (inspect mode)
   #hideWhitespace = true;
   #canvasTop = 0;
@@ -75,6 +76,7 @@ export class TreeView extends EventTarget {
     // Keep the selection even though ids change, thanks to the path
     const selected = this.#selectedPath === null ? null : (model.byPath.get(this.#selectedPath) ?? null);
     this.#selectedId = selected?.id ?? null;
+    this.#selectedNode = selected;
     this.#rebuild();
     this.dispatchEvent(new CustomEvent('select', { detail: selected }));
   }
@@ -160,8 +162,43 @@ export class TreeView extends EventTarget {
     this.#rendered.get(id)?.classList.add('is-hovered');
   }
 
+  /**
+   * Live changes (see applyPatches in model.js): the model has already been
+   * updated in place. Rows whose content changed are drawn again and flash:
+   * green for new nodes, purple for changed text or attributes.
+   * @param {import('./model.js').ChangeSummary} summary
+   */
+  applyChanges({ added, changed, structural }) {
+    if (!this.#model) return;
+    // Paths shift when siblings are added or removed
+    if (this.#model.byId.get(this.#selectedId) === this.#selectedNode) this.#selectedPath = this.#selectedNode?.path ?? null;
+
+    for (const id of [...changed.keys(), ...added]) {
+      this.#rendered.get(id)?.remove();
+      this.#rendered.delete(id);
+    }
+    if (structural) this.#update(true);
+    else this.#render();
+
+    for (const id of added) this.#flash(this.#rendered.get(id), 'added');
+    for (const [id, change] of changed) {
+      const row = this.#rendered.get(id);
+      if (!row || added.has(id)) continue;
+      if (change.text) this.#flash(row, 'changed');
+      for (const name of change.attributes) {
+        // Only the attribute's pill flashes; a removed attribute has no pill left, so the row does
+        const pill = [...row.querySelectorAll('.tok-attr')].find((element) => element.dataset.attr === name);
+        this.#flash(pill ?? row, 'changed');
+      }
+    }
+  }
+
   get selectedId() {
     return this.#selectedId;
+  }
+
+  get selectedNode() {
+    return this.#selectedId === null ? null : (this.#model?.byId.get(this.#selectedId) ?? null);
   }
 
   focus() {
@@ -190,6 +227,7 @@ export class TreeView extends EventTarget {
 
     this.#selectedId = id;
     this.#selectedPath = node?.path ?? null;
+    this.#selectedNode = node ?? null;
     const current = this.#rendered.get(id);
     current?.classList.add('is-selected');
     current?.setAttribute('aria-selected', 'true');
@@ -198,12 +236,22 @@ export class TreeView extends EventTarget {
     this.dispatchEvent(new CustomEvent('select', { detail: node }));
   }
 
-  /** If the selected node ended up inside a collapsed one, the selection moves up to it. */
+  /**
+   * If the selected node ended up inside a collapsed one, or was removed
+   * from the document, the selection moves up to the closest visible ancestor.
+   */
   #keepSelectionVisible() {
     if (this.#selectedId === null || this.#indexById.has(this.#selectedId)) return;
-    let node = this.#model?.byId.get(this.#selectedId)?.parent;
+    let node = this.#selectedNode?.parent;
     while (node && !this.#indexById.has(node.id)) node = node.parent;
     this.#setSelected(node ?? null);
+  }
+
+  #flash(element, kind) {
+    if (!element) return;
+    element.classList.remove('flash-added', 'flash-changed');
+    void element.offsetWidth; // restarts the animation if it was already running
+    element.classList.add(`flash-${kind}`);
   }
 
   // ── Rendering ───────────────────────────────────────────────────

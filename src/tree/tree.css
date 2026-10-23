@@ -115,6 +115,27 @@
   }
 }
 
+/* Live changes: green for new nodes, purple for changed text or attributes (like DevTools) */
+.flash-added {
+  animation: flash-added 1.4s var(--ease-out);
+}
+
+.flash-changed {
+  animation: flash-changed 1.2s var(--ease-out);
+}
+
+@keyframes flash-added {
+  from {
+    background-color: color-mix(in srgb, var(--green) 38%, transparent);
+  }
+}
+
+@keyframes flash-changed {
+  from {
+    background-color: color-mix(in srgb, var(--purple) 40%, transparent);
+  }
+}
+
 /* Disclosure arrow */
 .tree-row__twisty {
   display: grid;

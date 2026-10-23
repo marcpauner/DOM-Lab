@@ -102,7 +102,7 @@ export function renderLabel(node) {
 function elementLabel(node) {
   const parts = [tok('punct', '<'), tok('tag', displayName(node))];
   for (const [name, value] of node.attributes) {
-    const attr = h('span', { className: 'tok-attr' }, tok('attr-name', name));
+    const attr = h('span', { className: 'tok-attr', dataset: { attr: name } }, tok('attr-name', name));
     // Boolean attributes (hidden, disabled…): their value is "" and the name is enough
     if (value !== '') attr.append(tok('punct', '="'), tok('attr-value', preview(value, 80)), tok('punct', '"'));
     parts.push(attr);
