@@ -1,0 +1,124 @@
+/* ── Node context menu (native popover) ──────────────────────── */
+.node-menu {
+  position: fixed;
+  inset: auto;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 16px));
+  margin: 0;
+  padding: 5px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-float);
+  color: var(--text);
+  font-size: var(--text-md);
+  opacity: 0;
+  scale: 0.97;
+  transform-origin: top left;
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    scale var(--duration-fast) var(--ease-out),
+    display var(--duration-fast) allow-discrete,
+    overlay var(--duration-fast) allow-discrete;
+}
+
+.node-menu:popover-open {
+  opacity: 1;
+  scale: 1;
+}
+
+@starting-style {
+  .node-menu:popover-open {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
+
+.node-menu__title {
+  padding: 4px 9px 6px;
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-menu__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.node-menu__item:hover,
+.node-menu__item:focus-visible {
+  outline: none;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.node-menu__item kbd {
+  height: auto;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--text-3);
+}
+
+.node-menu__item:hover kbd,
+.node-menu__item:focus-visible kbd {
+  color: rgb(255 255 255 / 0.8);
+}
+
+.node-menu__item--danger {
+  color: var(--red);
+}
+
+.node-menu__item--danger:hover,
+.node-menu__item--danger:focus-visible {
+  background: var(--red);
+}
+
+.node-menu__separator {
+  height: 1px;
+  margin: 4px 9px;
+  background: var(--separator);
+}
+
+.node-menu__form {
+  padding: 2px 4px 4px;
+}
+
+.node-menu__row {
+  display: flex;
+  gap: 6px;
+}
+
+.node-menu__input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--fill);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.node-menu__input:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 0;
+}
