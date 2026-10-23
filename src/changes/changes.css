@@ -39,6 +39,10 @@
   --change-color: var(--orange);
 }
 
+.change--moved {
+  --change-color: var(--blue);
+}
+
 .change--attribute,
 .change--text {
   --change-color: var(--purple);
@@ -49,7 +53,7 @@
   font-style: italic;
 }
 
-/* A small symbol in the change's color: + added, − removed, ⇄ replaced, ✎ edited */
+/* A small symbol in the change's color: + added, − removed, ⇄ replaced, ↕ moved, ✎ edited */
 .change__icon {
   display: grid;
   place-items: center;
@@ -74,6 +78,10 @@
 
 .change--replaced .change__icon::before {
   content: '⇄';
+}
+
+.change--moved .change__icon::before {
+  content: '↕';
 }
 
 .change--attribute .change__icon::before,
@@ -141,6 +149,14 @@ button.change__node:hover {
 
 .change__time {
   font-variant-numeric: tabular-nums;
+}
+
+.change__source {
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .change__repeat {

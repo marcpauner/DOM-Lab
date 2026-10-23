@@ -78,13 +78,29 @@ export class ChangesPanel extends EventTarget {
   }
 
   #append(record) {
-    const message = this.#describe(record);
+    let message = this.#describe(record);
     if (!message) return;
     this.#empty.hidden = true;
-    this.#count++;
+
+    // Moving a node (appendChild / insertBefore with a node that is already in
+    // the document) produces two records: removed from its old parent, added to
+    // the new one. Shown together, it makes clear that a node is never copied.
+    const single = record.type === 'childList' && message.kind === 'added' && record.added.length === 1;
+    const removal = this.#last?.removal;
+    if (single && removal?.id === record.added[0].id && this.#last.repeat === 1) {
+      const node = chip(removal.id, removal.label);
+      const parts = removal.fromId === record.targetId
+        ? ['Moved ', node, ' within ', chip(record.targetId, record.target)]
+        : ['Moved ', node, ' from ', chip(removal.fromId, removal.from), ' to ', chip(record.targetId, record.target)];
+      message = { kind: 'moved', signature: null, parts };
+      this.#last.element.remove();
+      this.#last = null;
+    } else {
+      this.#count++;
+    }
 
     // The same change again (same node, same attribute, same kind of nodes): count it
-    const key = JSON.stringify([message.kind, record.targetId, record.name, message.signature]);
+    const key = JSON.stringify([message.kind, record.source, record.targetId, record.name, message.signature]);
     if (this.#last?.key === key) {
       this.#last.repeat++;
       this.#last.badge.textContent = `×${this.#last.repeat}`;
@@ -98,16 +114,26 @@ export class ChangesPanel extends EventTarget {
 
     const badge = h('span', { className: 'change__repeat', hidden: true });
     const time = h('time', { className: 'change__time' }, this.#elapsed(record.time));
-    this.#list.append(
-      h(
-        'div',
-        { className: `change change--${message.kind}` },
-        h('span', { className: 'change__icon', 'aria-hidden': 'true' }),
-        h('div', { className: 'change__body' }, ...message.parts),
-        h('span', { className: 'change__meta' }, badge, time),
-      ),
+    // Changes you made from DOM Lab's interface, as opposed to the ones your code made
+    const source = record.source === 'app' ? h('span', { className: 'change__source', title: 'Made from the DOM Lab interface' }, 'edit') : null;
+    const element = h(
+      'div',
+      { className: `change change--${message.kind}` },
+      h('span', { className: 'change__icon', 'aria-hidden': 'true' }),
+      h('div', { className: 'change__body' }, ...message.parts),
+      h('span', { className: 'change__meta' }, source, badge, time),
     );
-    this.#last = { key, badge, time, value: message.value, repeat: 1 };
+    this.#list.append(element);
+    const removed = record.type === 'childList' && message.kind === 'removed' && record.removed.length === 1 ? record.removed[0] : null;
+    this.#last = {
+      key,
+      badge,
+      time,
+      element,
+      value: message.value,
+      repeat: 1,
+      removal: removed && { id: removed.id, label: removed.label, fromId: record.targetId, from: record.target },
+    };
     this.#emitCount();
   }
 
