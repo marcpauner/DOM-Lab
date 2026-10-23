@@ -461,7 +461,170 @@ window.addEventListener('submit', (event) => {
   ]);
 });
 
-// ── 6. Commands from the app ────────────────────────────────────────
+// ── 6. Node details and event listeners ─────────────────────────────
+// There is no standard API to list an element's listeners
+// (getEventListeners() only exists inside DevTools). So the agent wraps
+// addEventListener / removeEventListener and keeps its own record. The
+// wrappers are installed at the very end of startup: the agent's own
+// listeners are not recorded, only the ones your code adds.
+const listenerRegistry = new WeakMap(); // target → [{ type, callback, capture, once, passive }]
+const nativeAdd = EventTarget.prototype.addEventListener;
+const nativeRemove = EventTarget.prototype.removeEventListener;
+
+const captureOf = (options) => (typeof options === 'boolean' ? options : Boolean(options?.capture));
+const sameListener = (entry, type, callback, capture) =>
+  entry.type === type && entry.callback === callback && entry.capture === capture;
+
+function forget(target, type, callback, capture) {
+  const entries = listenerRegistry.get(target);
+  const index = entries ? entries.findIndex((entry) => sameListener(entry, type, callback, capture)) : -1;
+  if (index >= 0) entries.splice(index, 1);
+}
+
+function recordListeners() {
+  EventTarget.prototype.addEventListener = function addEventListener(type, callback, options) {
+    nativeAdd.call(this, type, callback, options); // if the arguments are wrong, it throws before we record anything
+    if (!callback || options?.signal?.aborted) return;
+    type = String(type);
+    const capture = captureOf(options);
+    const entries = listenerRegistry.get(this) ?? [];
+    // The browser ignores a listener added twice (same type, function and capture): so do we
+    if (entries.some((entry) => sameListener(entry, type, callback, capture))) return;
+    listenerRegistry.set(this, entries);
+    entries.push({ type, callback, capture, once: Boolean(options?.once), passive: Boolean(options?.passive) });
+    // Listeners that remove themselves: { once: true } after the first event, or an AbortSignal
+    const drop = () => forget(this, type, callback, capture);
+    if (options?.once) nativeAdd.call(this, type, drop, { once: true, capture });
+    if (options?.signal) nativeAdd.call(options.signal, 'abort', drop, { once: true });
+  };
+  EventTarget.prototype.removeEventListener = function removeEventListener(type, callback, options) {
+    nativeRemove.call(this, type, callback, options);
+    forget(this, String(type), callback, captureOf(options));
+  };
+}
+
+// Event handler properties (onclick, oninput…): el.onclick = fn, or the
+// onclick="…" attribute. Collected now, before the user's code adds globals.
+const HANDLER_PROPERTIES = new Set();
+for (const source of [HTMLElement.prototype, Document.prototype, window]) {
+  for (const key in source) if (key.startsWith('on')) HANDLER_PROPERTIES.add(key);
+}
+
+function describeHandler(handler) {
+  try {
+    // A function's toString() returns its source code
+    if (typeof handler === 'function') return truncate(String(handler), LIMITS.MAX_HANDLER);
+    if (typeof handler?.handleEvent === 'function') {
+      return truncate(`{ handleEvent: ${handler.handleEvent} }`, LIMITS.MAX_HANDLER);
+    }
+  } catch {
+    // A Proxy or an object whose toString() throws
+  }
+  return '';
+}
+
+/**
+ * Listeners on the node and on every ancestor up to window. Most events
+ * bubble, so the ancestors' listeners also receive events that start on
+ * this node: that is how event delegation works.
+ */
+function listenersOf(node) {
+  const targets = [];
+  for (let target = node; target; target = target.parentNode) targets.push(target);
+  targets.push(window);
+
+  const result = [];
+  for (const target of targets) {
+    const where = {
+      own: target === node,
+      target: target === window ? 'window' : nodeLabel(target),
+      targetId: target === window ? null : idOf(target),
+    };
+    for (const entry of listenerRegistry.get(target) ?? []) {
+      const { type, capture, once, passive, callback } = entry;
+      result.push({ ...where, type, kind: 'listener', capture, once, passive, handler: describeHandler(callback) });
+    }
+    for (const property of HANDLER_PROPERTIES) {
+      let handler;
+      try {
+        handler = target[property];
+      } catch {
+        continue;
+      }
+      if (typeof handler !== 'function') continue;
+      const inline = target instanceof Element && target.hasAttribute(property);
+      result.push({
+        ...where,
+        type: property.slice(2),
+        kind: inline ? 'attribute' : 'property',
+        capture: false,
+        once: false,
+        passive: false,
+        handler: inline ? truncate(target.getAttribute(property), LIMITS.MAX_HANDLER) : describeHandler(handler),
+      });
+    }
+    if (result.length >= LIMITS.MAX_LISTENERS) break;
+  }
+  return result.slice(0, LIMITS.MAX_LISTENERS);
+}
+
+// Shorthands are not listed in the computed style (only their longhands),
+// but "margin: 16px 0px" reads much better than four separate values.
+const SHORTHANDS = [
+  'margin', 'padding', 'border', 'border-radius', 'inset', 'gap', 'flex', 'overflow',
+  'font', 'background', 'transition', 'animation',
+];
+
+function computedStyles(element) {
+  const style = getComputedStyle(element);
+  const styles = [];
+  for (let i = 0; i < style.length && styles.length < LIMITS.MAX_STYLES; i++) {
+    styles.push([style[i], style.getPropertyValue(style[i])]);
+  }
+  for (const name of SHORTHANDS) {
+    const value = style.getPropertyValue(name);
+    if (value) styles.push([name, value]);
+  }
+  return styles;
+}
+
+const METRICS = [
+  'offsetWidth', 'offsetHeight', 'offsetTop', 'offsetLeft',
+  'clientWidth', 'clientHeight', 'scrollWidth', 'scrollHeight', 'scrollTop', 'scrollLeft',
+];
+
+function metricsOf(element) {
+  const metrics = {};
+  // offset* only exist on HTML elements; client* and scroll* on every Element
+  for (const key of METRICS) if (typeof element[key] === 'number') metrics[key] = element[key];
+  if (element.offsetParent) metrics.offsetParent = nodeLabel(element.offsetParent);
+  return metrics;
+}
+
+function detailsOf(node) {
+  if (!node) return null;
+  const isElement = node instanceof Element;
+  const details = {
+    nodeType: node.nodeType,
+    nodeName: node.nodeName,
+    childNodes: node.childNodes.length,
+    children: node.children?.length ?? 0,
+    attributes: isElement
+      ? Array.from(node.attributes, (attr) => [attr.name, truncate(attr.value, LIMITS.MAX_ATTR_VALUE)])
+      : [],
+    box: measure(node),
+    metrics: isElement ? metricsOf(node) : null,
+    styles: isElement && node.isConnected ? computedStyles(node) : [],
+    listeners: listenersOf(node),
+  };
+  if (typeof node.data === 'string') {
+    details.text = truncate(node.data, LIMITS.MAX_TEXT);
+    details.length = node.data.length;
+  }
+  return details;
+}
+
+// ── 7. Commands from the app ────────────────────────────────────────
 window.addEventListener('message', (event) => {
   // We only obey the parent window. The user's code could pretend to be
   // the app with window.postMessage(), but then event.source would be this
@@ -487,10 +650,21 @@ window.addEventListener('message', (event) => {
     case TO_AGENT.SET_INSPECT:
       setInspecting(payload?.enabled === true);
       break;
+    case TO_AGENT.REQUEST_DETAILS: {
+      if (!Number.isInteger(payload?.id)) break;
+      let details = null;
+      try {
+        details = detailsOf(nodeOf(payload.id));
+      } catch {
+        // The user's code may have broken a DOM API the agent relies on
+      }
+      send(FROM_AGENT.DETAILS, { id: payload.id, details });
+      break;
+    }
   }
 });
 
-// ── 7. Startup ──────────────────────────────────────────────────────
+// ── 8. Startup ──────────────────────────────────────────────────────
 // Remove our own <script> so the tree only shows your document.
 document.currentScript?.remove();
 send(FROM_AGENT.READY, {});
@@ -500,3 +674,6 @@ send(FROM_AGENT.READY, {});
 // own DOMContentLoaded and load listeners do.
 document.addEventListener('DOMContentLoaded', () => schedule(sendSnapshot, 0), { once: true });
 window.addEventListener('load', () => schedule(sendSnapshot, 0), { once: true });
+
+// Last of all: from here on, every listener added belongs to your code.
+recordListeners();
