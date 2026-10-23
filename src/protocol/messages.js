@@ -37,6 +37,12 @@ export const FROM_AGENT = Object.freeze({
   PICK: 'inspect:pick',
   /** Everything the details panel shows about a node. payload: { id: number, details: NodeDetails|null } */
   DETAILS: 'node:details',
+  /**
+   * Live changes seen by the MutationObserver since the last batch.
+   * payload: { patches: Patch[], records: ChangeRecord[], dropped: number, overflow: number }
+   * overflow > 0: too many changes at once; a full dom:snapshot follows.
+   */
+  MUTATIONS: 'dom:mutations',
 });
 
 /** app → iframe */
@@ -61,6 +67,8 @@ export const LIMITS = Object.freeze({
   MAX_STYLES: 1_000,
   MAX_LISTENERS: 200,
   MAX_HANDLER: 600,
+  MAX_MUTATIONS: 5_000, // MutationRecords in one batch; more than that → a full snapshot instead
+  MAX_HISTORY: 300, // ChangeRecords sent per batch
 });
 
 /**
@@ -151,6 +159,34 @@ export const LIMITS = Object.freeze({
  * @property {Listener[]} listeners
  */
 
+/**
+ * A live change, described as the CURRENT state of what changed (not as a
+ * replay of each MutationRecord): applying it twice gives the same result.
+ * @typedef {{ op: 'children', id: number, children: Array<number|SerializedNode> }} ChildrenPatch
+ *   The node's children now, in order: the id of a node the app already has,
+ *   or a full SerializedNode for a new one. Children that are no longer listed were removed.
+ * @typedef {{ op: 'attributes', id: number, attributes: Array<[string, string]> }} AttributesPatch
+ * @typedef {{ op: 'text', id: number, value: string, truncated: boolean }} TextPatch
+ * @typedef {ChildrenPatch|AttributesPatch|TextPatch} Patch
+ *
+ * @typedef {Object} NodeRef
+ * @property {number} id
+ * @property {string} label
+ * @property {boolean} whitespace   A text node with only whitespace
+ *
+ * One MutationRecord, for the history of changes.
+ * @typedef {Object} ChangeRecord
+ * @property {'childList'|'attributes'|'characterData'} type
+ * @property {number} time          Date.now() when the observer saw it
+ * @property {number|null} targetId
+ * @property {string} target        Label of the node that changed
+ * @property {NodeRef[]} [added]    childList only
+ * @property {NodeRef[]} [removed]  childList only
+ * @property {string} [name]        attributes only: the attribute name
+ * @property {string|null} [oldValue]  attributes and characterData (null: the attribute did not exist)
+ * @property {string|null} [value]     The value right after this change (null: removed)
+ */
+
 /** Builds a message in the protocol format. */
 export function createMessage(runId, type, payload = {}) {
   return { channel: CHANNEL, version: VERSION, runId, type, payload };
@@ -192,6 +228,8 @@ export function readPayload(type, payload) {
       return isIdOrNull(payload.id) ? { id: payload.id } : null;
     case FROM_AGENT.DETAILS:
       return readDetails(payload);
+    case FROM_AGENT.MUTATIONS:
+      return readMutations(payload);
     default:
       return null;
   }
@@ -293,6 +331,64 @@ function readDetails(payload) {
     details.length = count(raw.length);
   }
   return { id, details };
+}
+
+const isId = (value) => Number.isInteger(value) && value > 0;
+const RECORD_TYPES = new Set(['childList', 'attributes', 'characterData']);
+const stringOrNull = (value, max) => (typeof value === 'string' ? value.slice(0, max) : null);
+
+function readPatch(raw) {
+  if (!isObject(raw) || !isId(raw.id)) return null;
+  switch (raw.op) {
+    case 'children':
+      // New nodes (objects) are validated node by node when they join the model (tree/model.js)
+      return Array.isArray(raw.children)
+        ? { op: 'children', id: raw.id, children: raw.children.slice(0, LIMITS.MAX_NODES).filter((child) => isId(child) || isObject(child)) }
+        : null;
+    case 'attributes':
+      return { op: 'attributes', id: raw.id, attributes: readPairs(raw.attributes, 500, LIMITS.MAX_ATTR_VALUE) };
+    case 'text':
+      return typeof raw.value === 'string'
+        ? { op: 'text', id: raw.id, value: raw.value.slice(0, LIMITS.MAX_TEXT), truncated: raw.truncated === true }
+        : null;
+    default:
+      return null;
+  }
+}
+
+function readNodeRef(raw) {
+  return isObject(raw) && isId(raw.id) ? { id: raw.id, label: text(raw.label, 200), whitespace: raw.whitespace === true } : null;
+}
+
+function readRecord(raw) {
+  if (!isObject(raw) || !RECORD_TYPES.has(raw.type)) return null;
+  /** @type {ChangeRecord} */
+  const record = {
+    type: raw.type,
+    time: Number.isFinite(raw.time) ? raw.time : Date.now(),
+    targetId: isId(raw.targetId) ? raw.targetId : null,
+    target: text(raw.target, 200),
+  };
+  if (raw.type === 'childList') {
+    const refs = (list) => (Array.isArray(list) ? list.slice(0, 20).map(readNodeRef).filter(Boolean) : []);
+    record.added = refs(raw.added);
+    record.removed = refs(raw.removed);
+  } else {
+    if (raw.type === 'attributes') record.name = text(raw.name, 200);
+    record.oldValue = stringOrNull(raw.oldValue, 300);
+    record.value = stringOrNull(raw.value, 300);
+  }
+  return record;
+}
+
+function readMutations(payload) {
+  if (!Array.isArray(payload.patches) || !Array.isArray(payload.records)) return null;
+  return {
+    patches: payload.patches.slice(0, LIMITS.MAX_MUTATIONS).map(readPatch).filter(Boolean),
+    records: payload.records.slice(0, LIMITS.MAX_HISTORY).map(readRecord).filter(Boolean),
+    dropped: count(payload.dropped),
+    overflow: count(payload.overflow),
+  };
 }
 
 const LEVELS = new Set(['log', 'info', 'warn', 'error', 'debug']);

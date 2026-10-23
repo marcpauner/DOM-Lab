@@ -43,12 +43,13 @@ Every message, in both directions, has the same shape:
 | Type | Payload | When |
 | --- | --- | --- |
 | `agent:ready` | `{}` | The agent has loaded (before your code). |
-| `dom:snapshot` | `{ root: SerializedNode, truncated }` | After `DOMContentLoaded`, after `load` and whenever the app asks. |
+| `dom:snapshot` | `{ root: SerializedNode, truncated }` | Once after `DOMContentLoaded`, then only when the app asks or a batch of changes is too big. |
 | `console:entries` | `{ entries: ConsoleEntry[], dropped }` | Batches of `console.*` calls, errors and sandbox warnings. |
 | `overlay:box` | `{ id, box: Box \| null, label }` | The followed node's box model: right away, then whenever it changes. |
 | `inspect:hover` | `{ id \| null }` | Inspect mode: the pointer moved onto another node. Always sent *before* its box. |
 | `inspect:pick` | `{ id \| null }` | Inspect mode: the user clicked a node. Inspect mode ends. |
 | `node:details` | `{ id, details: NodeDetails \| null }` | Answer to `node:request-details` (`null`: the node no longer exists). |
+| `dom:mutations` | `{ patches: Patch[], records: ChangeRecord[], dropped, overflow }` | Live changes, in batches every 50 ms at most. |
 
 ### App → agent (`TO_AGENT`)
 
@@ -133,13 +134,38 @@ The overlay is **drawn by the app**, on top of the iframe, never inside it: addi
 
 The app ignores boxes that arrive late for a node it no longer highlights, and since ids change on every run, it sends no highlight until the new tree has arrived.
 
+## Live updates
+
+Right after the first snapshot, the agent starts a `MutationObserver` on the whole document (`childList`, `attributes`, `characterData`, `subtree`, plus the old values). Its records are collected for up to 50 ms and sent as one `dom:mutations` message with two parts:
+
+- **`patches`** update the tree. They describe the **current state** of whatever changed, not each step: replaying MutationRecords one by one is fragile, because by the time the observer's callback runs the DOM may already have changed again.
+
+  ```js
+  { op: 'children', id: 12, children: [13, 14, { id: 40, nodeType: 1, nodeName: 'LI', … }] }
+  // ul (12) now has these children: 13 and 14 it already knew, 40 is new (sent in full)
+  { op: 'attributes', id: 9, attributes: [['class', 'a b']] }
+  { op: 'text', id: 15, value: 'Changed!', truncated: false }
+  ```
+
+  Applying a patch twice gives the same result. The agent keeps a `WeakSet` of the nodes the app already has, so only new nodes travel in full. A node that leaves the document is forgotten; if it comes back it is sent in full again, with the same id (the `WeakMap` remembers it).
+
+- **`records`** feed the history of changes: one `ChangeRecord` per MutationRecord, with the nodes added and removed, or the attribute / text before and after. The value *after* each change is the `oldValue` of the next change to the same attribute, or the live value for the last one (the batch is walked backwards).
+
+```js
+// ChangeRecord
+{ type: 'attributes', time: 1793000000000, targetId: 9, target: 'h1', name: 'class', oldValue: 'a', value: 'a b' }
+{ type: 'childList', time: 1793000000000, targetId: 12, target: 'ul#list',
+  added: [{ id: 40, label: 'li.new', whitespace: false }], removed: [] }
+```
+
+In the app, `applyPatches()` (`tree/model.js`) applies every `children` patch first (a node dropped by one parent may have been picked up by another one in the same batch), then deletes what nobody picked up, then applies attributes and text. If a patch names a node the app does not have, it asks for a full snapshot. With more than `LIMITS.MAX_MUTATIONS` records in one batch the agent skips the patches and sends a full snapshot instead.
+
 ## Planned messages for the next phases
 
 They will use the same envelope; names may change when they are implemented.
 
 | Phase | Direction | Type | Payload |
 | --- | --- | --- | --- |
-| 4 | agent → app | `dom:mutations` | `{ records: Patch[] }` — incremental changes from a `MutationObserver` |
 | 5 | app → agent | `attr:set`, `attr:remove`, `text:set`, `node:remove`, `node:move`, `node:insert` | `{ requestId, id, … }` |
 | 5 | agent → app | `command:result` | `{ requestId, ok, error? }` |
 
