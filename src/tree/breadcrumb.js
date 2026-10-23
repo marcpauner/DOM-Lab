@@ -3,7 +3,7 @@ import { shortLabel } from './renderRow.js';
 
 /**
  * Breadcrumbs: the chain of parentNode from #document down to the selected
- * node. Each crumb is a button with data-id so it can be selected.
+ * node. Each crumb is a button with data-node-id so it can be selected.
  */
 export function renderBreadcrumb(container, node) {
   if (!node) {
@@ -23,7 +23,7 @@ export function renderBreadcrumb(container, node) {
           className: 'breadcrumb__item',
           type: 'button',
           'aria-current': item === node ? 'true' : null,
-          dataset: { id: item.id },
+          dataset: { nodeId: item.id },
         },
         shortLabel(item),
       ),

@@ -60,6 +60,11 @@
   background: var(--fill);
 }
 
+/* The node under the pointer in the preview (inspect mode) */
+.tree-row.is-hovered {
+  background: var(--accent-soft);
+}
+
 /* Transitions are only enabled while expanding or collapsing */
 .tree__canvas.is-animating .tree-row {
   transition:

@@ -59,7 +59,8 @@ export function renderRow(node, { childCount }) {
       role: 'treeitem',
       'aria-level': node.depth + 1,
       title: describe(node, kind, childCount),
-      dataset: { id: node.id },
+      // Anything that represents a DOM node carries data-node-id (see main.js: hover → highlight)
+      dataset: { nodeId: node.id },
     },
     h('span', { className: 'tree-row__twisty', 'aria-hidden': 'true' }),
     h('span', { className: 'tree-row__dot', 'aria-hidden': 'true' }),

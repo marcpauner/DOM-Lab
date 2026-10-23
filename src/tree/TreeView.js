@@ -38,6 +38,7 @@ export class TreeView extends EventTarget {
   #expanded = new Map(); // path → expanded/collapsed (what the user chose)
   #selectedId = null;
   #selectedPath = null;
+  #hoveredId = null; // node under the pointer in the preview (inspect mode)
   #hideWhitespace = true;
   #canvasTop = 0;
   #frame = 0;
@@ -133,6 +134,34 @@ export class TreeView extends EventTarget {
       row?.classList.add('is-flashing');
     }
     return true;
+  }
+
+  /**
+   * Marks the node the pointer is over in the preview. With reveal, expands
+   * its ancestors and scrolls to it (like DevTools while inspecting).
+   */
+  setHovered(id, { reveal = false } = {}) {
+    if (id === this.#hoveredId) return;
+    this.#rendered.get(this.#hoveredId)?.classList.remove('is-hovered');
+    this.#hoveredId = id;
+    const node = id === null ? null : this.#model?.byId.get(id);
+    if (!node || (node.isWhitespace && this.#hideWhitespace)) return;
+    if (reveal) {
+      let expanded = false;
+      for (let parent = node.parent; parent; parent = parent.parent) {
+        if (this.#isExpanded(parent)) continue;
+        this.#expanded.set(parent.path, true);
+        expanded = true;
+      }
+      if (expanded) this.#update(false);
+      this.#scrollIntoView(this.#indexById.get(id));
+      this.#render();
+    }
+    this.#rendered.get(id)?.classList.add('is-hovered');
+  }
+
+  get selectedId() {
+    return this.#selectedId;
   }
 
   focus() {
@@ -296,6 +325,7 @@ export class TreeView extends EventTarget {
     if (row.classList.contains('has-children')) row.setAttribute('aria-expanded', String(this.#isExpanded(node)));
     const selected = node.id === this.#selectedId;
     row.classList.toggle('is-selected', selected);
+    row.classList.toggle('is-hovered', node.id === this.#hoveredId);
     row.setAttribute('aria-selected', String(selected));
   }
 
@@ -312,7 +342,7 @@ export class TreeView extends EventTarget {
 
   #nodeFromEvent(event) {
     const row = event.target.closest('.tree-row');
-    return row ? (this.#model?.byId.get(Number(row.dataset.id)) ?? null) : null;
+    return row ? (this.#model?.byId.get(Number(row.dataset.nodeId)) ?? null) : null;
   }
 
   #onClick(event) {
