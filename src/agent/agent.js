@@ -58,8 +58,26 @@ const nodeOf = (id) => refs.get(id)?.deref() ?? null;
 // not support DOM nodes. So we walk the tree and turn it into plain objects
 // (see SerializedNode in protocol/messages.js).
 
+// Nodes the app already has in its tree. Live updates refer to them by id
+// and only send new nodes in full.
+let known = new WeakSet();
+
+/** childNodes, plus the "hidden" children: shadow root and <template> content. */
+function childrenOf(node) {
+  const kids = [];
+  if (node.shadowRoot) kids.push(node.shadowRoot);
+  // A <template>'s content is not in childNodes but in a separate
+  // DocumentFragment: template.content
+  if (node instanceof HTMLTemplateElement) kids.push(node.content);
+  // childNodes includes ALL children (elements, text, comments);
+  // children would only include the elements.
+  kids.push(...node.childNodes);
+  return kids;
+}
+
 function serialize(node, depth, budget) {
   budget.left--;
+  known.add(node);
   const out = { id: idOf(node), nodeType: node.nodeType, nodeName: node.nodeName };
 
   switch (node.nodeType) {
@@ -85,21 +103,12 @@ function serialize(node, depth, budget) {
       break;
   }
 
-  // childNodes includes ALL children (elements, text, comments);
-  // children would only include the elements.
-  const kids = [];
-  if (node.shadowRoot) kids.push(node.shadowRoot);
-  // A <template>'s content is not in childNodes but in a separate
-  // DocumentFragment: template.content
-  if (node instanceof HTMLTemplateElement) kids.push(node.content);
-  kids.push(...node.childNodes);
-
   out.children = [];
   if (depth >= LIMITS.MAX_DEPTH) {
     budget.truncated = true;
     return out;
   }
-  for (const child of kids) {
+  for (const child of childrenOf(node)) {
     if (budget.left <= 0) {
       budget.truncated = true;
       break;
@@ -110,9 +119,145 @@ function serialize(node, depth, budget) {
 }
 
 function sendSnapshot() {
+  // A full snapshot replaces the app's tree: start the "known" list over,
+  // and drop pending changes (the snapshot already includes them).
+  known = new WeakSet();
+  pendingRecords.length = 0;
+  observer.takeRecords();
   const budget = { left: LIMITS.MAX_NODES, truncated: false };
   const root = serialize(document, 0, budget);
   send(FROM_AGENT.SNAPSHOT, { root, truncated: budget.truncated });
+  startObserving();
+}
+
+// ── 2b. Live updates: MutationObserver ──────────────────────────────
+// After the first snapshot, a MutationObserver reports every change to the
+// DOM. Records are batched for a few milliseconds, then turned into:
+//   - patches: the CURRENT state of whatever changed ("ul#list now has these
+//     children", "li now has these attributes"). Replaying each record one by
+//     one would be fragile: by the time the callback runs, the DOM may have
+//     changed again. Applying a patch twice gives the same result.
+//   - records: what happened and when, for the history of changes.
+const OBSERVE = {
+  childList: true,
+  attributes: true,
+  characterData: true,
+  subtree: true, // the whole document, not just the node we observe
+  attributeOldValue: true,
+  characterDataOldValue: true,
+};
+const BATCH_MS = 50;
+const pendingRecords = []; // { record, time }
+let flushTimer = 0;
+let observing = false;
+
+const observer = new MutationObserver((records) => {
+  const time = Date.now();
+  for (const record of records) pendingRecords.push({ record, time });
+  if (!flushTimer) flushTimer = schedule(flushMutations, BATCH_MS);
+});
+// Saved now: the user's code could replace MutationObserver.prototype.observe later
+const observe = MutationObserver.prototype.observe;
+
+function startObserving() {
+  if (observing) return;
+  observing = true;
+  observe.call(observer, document, OBSERVE);
+}
+
+/** A removed node and its subtree are no longer in the app's tree. */
+function forgetSubtree(node) {
+  const stack = [node];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    known.delete(current);
+    stack.push(...childrenOf(current));
+  }
+}
+
+const isWhitespaceText = (node) => node.nodeType === Node.TEXT_NODE && /^[ \t\n\f\r]*$/.test(node.data);
+const nodeRef = (node) => ({ id: idOf(node), label: nodeLabel(node), whitespace: isWhitespaceText(node) });
+
+function liveValue(record) {
+  return record.type === 'attributes' ? record.target.getAttribute(record.attributeName) : record.target.data;
+}
+
+function flushMutations() {
+  flushTimer = 0;
+  const time = Date.now();
+  const batch = pendingRecords.splice(0);
+  for (const record of observer.takeRecords()) batch.push({ record, time });
+  if (batch.length === 0) return;
+
+  if (batch.length > LIMITS.MAX_MUTATIONS) {
+    send(FROM_AGENT.MUTATIONS, { patches: [], records: [], dropped: 0, overflow: batch.length });
+    sendSnapshot();
+    return;
+  }
+
+  // Nodes that left the document stop being "known": if they come back,
+  // they are sent in full again (with the same id, thanks to the WeakMap).
+  for (const { record } of batch) {
+    for (const node of record.removedNodes) if (!node.isConnected) forgetSubtree(node);
+  }
+
+  const parents = new Set();
+  const elements = new Set();
+  const texts = new Set();
+  for (const { record } of batch) {
+    if (record.type === 'childList') parents.add(record.target);
+    else if (record.type === 'attributes') elements.add(record.target);
+    else texts.add(record.target);
+  }
+
+  const patches = [];
+  const budget = { left: LIMITS.MAX_NODES, truncated: false };
+  const current = (node) => known.has(node) && node.isConnected;
+  for (const parent of parents) {
+    if (!current(parent)) continue;
+    const children = childrenOf(parent).map((child) => (known.has(child) ? idOf(child) : serialize(child, 0, budget)));
+    patches.push({ op: 'children', id: idOf(parent), children });
+  }
+  for (const element of elements) {
+    if (!current(element)) continue;
+    const attributes = Array.from(element.attributes, (attr) => [attr.name, truncate(attr.value, LIMITS.MAX_ATTR_VALUE)]);
+    patches.push({ op: 'attributes', id: idOf(element), attributes });
+  }
+  for (const node of texts) {
+    if (!current(node)) continue;
+    patches.push({ op: 'text', id: idOf(node), value: truncate(node.data, LIMITS.MAX_TEXT), truncated: node.data.length > LIMITS.MAX_TEXT });
+  }
+
+  // The value right AFTER each change is the oldValue of the next change to
+  // the same attribute (or text), or the live value for the last one. So we
+  // walk the batch backwards.
+  const after = new Map(); // node → Map(attribute name → value)
+  const values = [];
+  for (let i = batch.length - 1; i >= 0; i--) {
+    const { record } = batch[i];
+    if (record.type === 'childList') continue;
+    const key = record.attributeName ?? '#data';
+    const byKey = after.get(record.target) ?? new Map();
+    after.set(record.target, byKey);
+    values[i] = byKey.has(key) ? byKey.get(key) : liveValue(record);
+    byKey.set(key, record.oldValue);
+  }
+
+  const records = [];
+  batch.slice(0, LIMITS.MAX_HISTORY).forEach(({ record, time: when }, index) => {
+    const entry = { type: record.type, time: when, targetId: idOf(record.target), target: nodeLabel(record.target) };
+    if (record.type === 'childList') {
+      entry.added = Array.from(record.addedNodes).slice(0, 20).map(nodeRef);
+      entry.removed = Array.from(record.removedNodes).slice(0, 20).map(nodeRef);
+    } else {
+      if (record.type === 'attributes') entry.name = record.attributeName;
+      entry.oldValue = record.oldValue === null ? null : truncate(record.oldValue, 300);
+      entry.value = values[index] === null ? null : truncate(values[index], 300);
+    }
+    records.push(entry);
+  });
+
+  send(FROM_AGENT.MUTATIONS, { patches, records, dropped: Math.max(0, batch.length - LIMITS.MAX_HISTORY), overflow: 0 });
 }
 
 // ── 3. Capturing the console and errors ─────────────────────────────
@@ -671,9 +816,9 @@ send(FROM_AGENT.READY, {});
 
 // The user's JS is at the end of <body>: by DOMContentLoaded it has already
 // run. We wait one more "tick" (setTimeout 0) to also include whatever its
-// own DOMContentLoaded and load listeners do.
+// own DOMContentLoaded listeners do. From then on, the MutationObserver
+// reports every change (including what "load" listeners or timers do).
 document.addEventListener('DOMContentLoaded', () => schedule(sendSnapshot, 0), { once: true });
-window.addEventListener('load', () => schedule(sendSnapshot, 0), { once: true });
 
 // Last of all: from here on, every listener added belongs to your code.
 recordListeners();
