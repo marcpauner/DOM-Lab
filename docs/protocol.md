@@ -48,6 +48,7 @@ Every message, in both directions, has the same shape:
 | `overlay:box` | `{ id, box: Box \| null, label }` | The followed node's box model: right away, then whenever it changes. |
 | `inspect:hover` | `{ id \| null }` | Inspect mode: the pointer moved onto another node. Always sent *before* its box. |
 | `inspect:pick` | `{ id \| null }` | Inspect mode: the user clicked a node. Inspect mode ends. |
+| `node:details` | `{ id, details: NodeDetails \| null }` | Answer to `node:request-details` (`null`: the node no longer exists). |
 
 ### App → agent (`TO_AGENT`)
 
@@ -56,6 +57,7 @@ Every message, in both directions, has the same shape:
 | `dom:request-snapshot` | `{}` | The agent walks the DOM again and sends `dom:snapshot`. |
 | `overlay:highlight` | `{ id \| null }` | The agent starts following that node's box (`null` stops). Ignored while inspecting. |
 | `inspect:set` | `{ enabled }` | Turns inspect mode on or off. |
+| `node:request-details` | `{ id }` | Asks for everything the details panel shows about a node. |
 
 ### Data types
 
@@ -89,7 +91,37 @@ Every message, in both directions, has the same shape:
   border:  [0, 0, 0, 0],
   padding: [32, 40, 32, 40]
 }
+
+// NodeDetails
+{
+  nodeType: 1, nodeName: 'UL',
+  childNodes: 5, children: 3,             // childNodes.length and children.length
+  attributes: [['id', 'list']],
+  text: '…', length: 13,                  // text and comments only (data and data.length)
+  box: Box | null,                        // null if it is not rendered
+  metrics: {                              // elements only
+    offsetWidth: 398, offsetHeight: 22, offsetTop: 308, offsetLeft: 78, offsetParent: 'body',
+    clientWidth: 398, clientHeight: 22, scrollWidth: 398, scrollHeight: 22, scrollTop: 0, scrollLeft: 0
+  },
+  styles: [['display', 'flex'], ['margin', '16px 0px'], …],   // getComputedStyle + a few shorthands
+  listeners: [{                                              // Listener[]
+    own: true, target: 'ul#list', targetId: 42,
+    type: 'click', kind: 'listener',                         // 'listener' | 'property' | 'attribute'
+    capture: false, once: false, passive: false,
+    handler: "(e) => console.log('clicked', e.target)"
+  }]
+}
 ```
+
+## Node details and event listeners
+
+`node:request-details` answers with everything the details panel shows. Most of it comes from standard APIs (`getComputedStyle`, `getBoundingClientRect`, `offsetWidth`…), but **there is no standard way to list an element's event listeners**: `getEventListeners()` only exists inside DevTools. So the agent keeps its own record:
+
+1. At the very end of its startup (after registering its own listeners) it replaces `EventTarget.prototype.addEventListener` and `removeEventListener` with wrappers that call the original and note the listener in a `WeakMap` (target → listeners).
+2. Listeners added with `{ once: true }` or an `AbortSignal` are removed from the record when they remove themselves.
+3. Event handler properties (`el.onclick = fn`) and attributes (`onclick="…"`) are read directly from each node.
+
+The details include the listeners of the node **and of its ancestors up to `window`**: most events bubble, so those also run for events that start on the node (event delegation).
 
 ## Highlighting and inspect mode
 
@@ -107,8 +139,6 @@ They will use the same envelope; names may change when they are implemented.
 
 | Phase | Direction | Type | Payload |
 | --- | --- | --- | --- |
-| 3 | app → agent | `node:request-details` | `{ id }` |
-| 3 | agent → app | `node:details` | `{ id, computedStyle, box, listeners? }` |
 | 4 | agent → app | `dom:mutations` | `{ records: Patch[] }` — incremental changes from a `MutationObserver` |
 | 5 | app → agent | `attr:set`, `attr:remove`, `text:set`, `node:remove`, `node:move`, `node:insert` | `{ requestId, id, … }` |
 | 5 | agent → app | `command:result` | `{ requestId, ok, error? }` |

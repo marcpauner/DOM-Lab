@@ -35,6 +35,8 @@ export const FROM_AGENT = Object.freeze({
   HOVER: 'inspect:hover',
   /** Inspect mode: the user clicked a node (inspect mode ends). payload: { id: number|null } */
   PICK: 'inspect:pick',
+  /** Everything the details panel shows about a node. payload: { id: number, details: NodeDetails|null } */
+  DETAILS: 'node:details',
 });
 
 /** app → iframe */
@@ -45,6 +47,8 @@ export const TO_AGENT = Object.freeze({
   HIGHLIGHT: 'overlay:highlight',
   /** Turns inspect mode on or off. payload: { enabled: boolean } */
   SET_INSPECT: 'inspect:set',
+  /** Asks for a node's details (answered with node:details). payload: { id: number } */
+  REQUEST_DETAILS: 'node:request-details',
 });
 
 /** Shared limits: they protect the app from huge or malicious documents. */
@@ -54,6 +58,9 @@ export const LIMITS = Object.freeze({
   MAX_TEXT: 10_000,
   MAX_ATTR_VALUE: 2_000,
   MAX_CONSOLE_BATCH: 300,
+  MAX_STYLES: 1_000,
+  MAX_LISTENERS: 200,
+  MAX_HANDLER: 600,
 });
 
 /**
@@ -102,6 +109,48 @@ export const LIMITS = Object.freeze({
  * @property {Sides} padding
  */
 
+/**
+ * An event listener on the node or on one of its ancestors.
+ * @typedef {Object} Listener
+ * @property {boolean} own          true: on the node itself; false: on an ancestor (or window)
+ * @property {string} target        Label of the node that has it: 'ul#list', '#document', 'window'
+ * @property {number|null} targetId Its id in the tree (null for window)
+ * @property {string} type          'click', 'input'…
+ * @property {'listener'|'property'|'attribute'} kind  addEventListener, el.onclick = …, or onclick="…"
+ * @property {boolean} capture
+ * @property {boolean} once
+ * @property {boolean} passive
+ * @property {string} handler       Source code of the function (or of the attribute)
+ *
+ * Measurement properties of an element (CSSOM View), in CSS pixels.
+ * The offset* ones only exist on HTML elements (not on SVG).
+ * @typedef {Object} Metrics
+ * @property {number} [offsetWidth]
+ * @property {number} [offsetHeight]
+ * @property {number} [offsetTop]
+ * @property {number} [offsetLeft]
+ * @property {string} [offsetParent]  Label of the offsetParent
+ * @property {number} clientWidth
+ * @property {number} clientHeight
+ * @property {number} scrollWidth
+ * @property {number} scrollHeight
+ * @property {number} scrollTop
+ * @property {number} scrollLeft
+ *
+ * @typedef {Object} NodeDetails
+ * @property {number} nodeType
+ * @property {string} nodeName
+ * @property {number} childNodes     childNodes.length
+ * @property {number} children       children.length (elements only count)
+ * @property {Array<[string, string]>} attributes
+ * @property {string} [text]         data of text and comment nodes
+ * @property {number} [length]       Its real length (text may be truncated)
+ * @property {Box|null} box
+ * @property {Metrics|null} metrics
+ * @property {Array<[string, string]>} styles  Computed styles: [property, value]
+ * @property {Listener[]} listeners
+ */
+
 /** Builds a message in the protocol format. */
 export function createMessage(runId, type, payload = {}) {
   return { channel: CHANNEL, version: VERSION, runId, type, payload };
@@ -141,6 +190,8 @@ export function readPayload(type, payload) {
     case FROM_AGENT.HOVER:
     case FROM_AGENT.PICK:
       return isIdOrNull(payload.id) ? { id: payload.id } : null;
+    case FROM_AGENT.DETAILS:
+      return readDetails(payload);
     default:
       return null;
   }
@@ -149,32 +200,99 @@ export function readPayload(type, payload) {
 const isIdOrNull = (value) => value === null || (Number.isInteger(value) && value > 0);
 const isCoordinate = (value) => Number.isFinite(value) && Math.abs(value) < 1e6;
 const isSides = (value) => Array.isArray(value) && value.length === 4 && value.every(isCoordinate);
+const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : '');
+const count = (value) => (Number.isInteger(value) && value >= 0 ? value : 0);
 
-function readBox(payload) {
-  const { id, box, label } = payload;
-  if (!isIdOrNull(id)) return null;
-  if (box === null) return { id, box: null, label: '' };
+/** A valid Box copied field by field (anything else the iframe sent is dropped), or undefined. */
+function copyBox(box) {
   const valid =
     isObject(box) &&
     ['x', 'y', 'width', 'height'].every((key) => isCoordinate(box[key])) &&
     isSides(box.margin) &&
     isSides(box.border) &&
     isSides(box.padding);
-  if (!valid) return null;
-  // Copy only the expected fields: anything else the iframe sent is dropped
+  if (!valid) return undefined;
   return {
-    id,
-    box: {
-      x: box.x,
-      y: box.y,
-      width: box.width,
-      height: box.height,
-      margin: [...box.margin],
-      border: [...box.border],
-      padding: [...box.padding],
-    },
-    label: typeof label === 'string' ? label.slice(0, 200) : '',
+    x: box.x,
+    y: box.y,
+    width: box.width,
+    height: box.height,
+    margin: [...box.margin],
+    border: [...box.border],
+    padding: [...box.padding],
   };
+}
+
+function readBox(payload) {
+  const { id, box, label } = payload;
+  if (!isIdOrNull(id)) return null;
+  if (box === null) return { id, box: null, label: '' };
+  const copy = copyBox(box);
+  return copy ? { id, box: copy, label: text(label, 200) } : null;
+}
+
+/** [string, string] pairs, at most `max` of them. */
+function readPairs(value, max, valueMax) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(0, max)
+    .filter((pair) => Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string')
+    .map(([name, val]) => [name.slice(0, 200), val.slice(0, valueMax)]);
+}
+
+const METRIC_KEYS = [
+  'offsetWidth', 'offsetHeight', 'offsetTop', 'offsetLeft',
+  'clientWidth', 'clientHeight', 'scrollWidth', 'scrollHeight', 'scrollTop', 'scrollLeft',
+];
+const LISTENER_KINDS = new Set(['listener', 'property', 'attribute']);
+
+function readMetrics(raw) {
+  if (!isObject(raw)) return null;
+  const metrics = {};
+  for (const key of METRIC_KEYS) if (isCoordinate(raw[key])) metrics[key] = raw[key];
+  if (typeof raw.offsetParent === 'string') metrics.offsetParent = raw.offsetParent.slice(0, 200);
+  return metrics;
+}
+
+function readListener(raw) {
+  if (!isObject(raw) || !LISTENER_KINDS.has(raw.kind) || typeof raw.type !== 'string') return null;
+  return {
+    own: raw.own === true,
+    target: text(raw.target, 200),
+    targetId: Number.isInteger(raw.targetId) && raw.targetId > 0 ? raw.targetId : null,
+    type: raw.type.slice(0, 60),
+    kind: raw.kind,
+    capture: raw.capture === true,
+    once: raw.once === true,
+    passive: raw.passive === true,
+    handler: text(raw.handler, LIMITS.MAX_HANDLER),
+  };
+}
+
+function readDetails(payload) {
+  const { id, details: raw } = payload;
+  if (!Number.isInteger(id) || id <= 0) return null;
+  if (raw === null) return { id, details: null };
+  if (!isObject(raw) || !Number.isInteger(raw.nodeType)) return null;
+  /** @type {NodeDetails} */
+  const details = {
+    nodeType: raw.nodeType,
+    nodeName: text(raw.nodeName, 200),
+    childNodes: count(raw.childNodes),
+    children: count(raw.children),
+    attributes: readPairs(raw.attributes, 500, LIMITS.MAX_ATTR_VALUE),
+    box: copyBox(raw.box) ?? null,
+    metrics: readMetrics(raw.metrics),
+    styles: readPairs(raw.styles, LIMITS.MAX_STYLES, 1_000),
+    listeners: Array.isArray(raw.listeners)
+      ? raw.listeners.slice(0, LIMITS.MAX_LISTENERS).map(readListener).filter(Boolean)
+      : [],
+  };
+  if (typeof raw.text === 'string') {
+    details.text = raw.text.slice(0, LIMITS.MAX_TEXT);
+    details.length = count(raw.length);
+  }
+  return { id, details };
 }
 
 const LEVELS = new Set(['log', 'info', 'warn', 'error', 'debug']);
