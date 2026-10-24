@@ -16,7 +16,7 @@ import { shortLabel } from './tree/renderRow.js';
 import { DomEditor } from './edit/DomEditor.js';
 import { Menu } from './ui/Menu.js';
 import { toast } from './ui/toast.js';
-import { loadInitialProject, saveCode, saveBackup, readBackup, isJsReviewed, markJsReviewed } from './project/project.js';
+import { loadInitialProject, saveCode, saveBackup, readBackup, sameCode, isJsReviewed, markJsReviewed } from './project/project.js';
 import { shareUrl, readSharedCode, SHARE_PREFIX } from './project/share.js';
 import { buildDocument, download } from './project/export.js';
 import { TEMPLATES } from './examples/templates.js';
@@ -699,7 +699,13 @@ window.addEventListener('hashchange', async () => {
   try {
     const code = await readSharedCode();
     history.replaceState(null, '', location.pathname + location.search);
-    saveBackup(editors.getCode());
+    const current = editors.getCode();
+    // The same code you already have: nothing to keep, nothing to review
+    if (sameCode(current, code)) {
+      toast('That link has the same code you already have.');
+      return;
+    }
+    saveBackup(current);
     loadCode(code, { runJs: false });
     markJsReviewed(false);
     welcomeShared({ backedUp: true });

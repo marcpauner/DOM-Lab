@@ -51,11 +51,12 @@ export async function loadInitialProject() {
     if (shared) {
       // Remove the #code=… so that reloading shows your latest edits, not the original link
       history.replaceState(null, '', location.pathname + location.search);
-      const backedUp = Boolean(savedCode && !sameCode(savedCode, shared));
-      if (backedUp) saveBackup(savedCode);
+      // A link with the code you already have here is just a normal visit
+      if (savedCode && sameCode(savedCode, shared)) return { code: savedCode, source: 'saved' };
+      if (savedCode) saveBackup(savedCode);
       saveCode(shared);
       markJsReviewed(false);
-      return { code: shared, source: 'shared', backedUp };
+      return { code: shared, source: 'shared', backedUp: Boolean(savedCode) };
     }
   } catch (error) {
     history.replaceState(null, '', location.pathname + location.search);
